@@ -80,3 +80,6 @@ class Settings:
     SYLLABLE_TOLERANCE = 3.0           # Controls bell curve width for syllables
     TIME_TOLERANCE = 1.0               # Controls bell curve width for time
     USE_OPTIMIZED_LINEBREAKS = True    # Enable optimized linebreak algorithm
+    
+    # Note sanity check parameters
+    ENABLE_NOTE_OPTIMIZATIONS = True   # Enable note length and overlap optimizations

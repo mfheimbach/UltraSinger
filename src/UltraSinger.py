@@ -1,4 +1,4 @@
-"""UltraSinger uses AI to automatically create UltraStar song files"""
+﻿"""UltraSinger uses AI to automatically create UltraStar song files"""
 
 import copy
 import getopt
@@ -408,6 +408,11 @@ def CreateUltraStarTxt(process_data: ProcessData):
         vocals_output_path = os.path.join(settings.output_folder_path, process_data.basename + " [Vocals].mp3")
         convert_wav_to_mp3(process_data.process_data_paths.vocals_audio_file_path, vocals_output_path)
 
+    # Apply note optimizations if enabled
+    if hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
+        from modules.Ultrastar.note_processor import optimize_midi_segments
+        process_data.midi_segments = optimize_midi_segments(process_data.midi_segments, process_data.media_info.bpm)
+
     # Create Ultrastar txt
     if not settings.ignore_audio:
         ultrastar_file_output = create_ultrastar_txt_from_automation(
@@ -433,7 +438,6 @@ def CreateUltraStarTxt(process_data: ProcessData):
         simple_score, accurate_score = calculate_score_points(process_data, ultrastar_file_output)
 
     # Add calculated score to Ultrastar txt
-    #Todo: Missing Karaoke
     ultrastar_writer.add_score_to_ultrastar_txt(ultrastar_file_output, simple_score)
     return accurate_score, simple_score, ultrastar_file_output
 
