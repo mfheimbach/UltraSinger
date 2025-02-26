@@ -1,10 +1,11 @@
-"""Ultrastar writer module"""
+﻿"""Ultrastar writer module"""
 
 import re
 import langcodes
+import codecs
 from packaging import version
 
-from modules.console_colors import ULTRASINGER_HEAD
+from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
 from modules.Ultrastar.coverter.ultrastar_converter import (
     real_bpm_to_ultrastar_bpm,
     second_to_beat, )
@@ -13,6 +14,13 @@ from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtTag, 
     FILE_ENCODING
 from modules.Ultrastar.ultrastar_score_calculator import Score
 from modules.Midi.MidiSegment import MidiSegment
+
+# Import the LinebreakOptimizer if it's available
+try:
+    from modules.Ultrastar.linebreak_optimizer import LinebreakOptimizer
+    linebreak_optimizer_available = True
+except ImportError:
+    linebreak_optimizer_available = False
 
 
 def get_multiplier(real_bpm: float) -> int:
@@ -39,7 +47,8 @@ def create_ultrastar_txt(
         midi_segments: list[MidiSegment],
         ultrastar_file_output: str,
         ultrastar_class: UltrastarTxtValue,
-        real_bpm: float) -> None:
+        real_bpm: float,
+        settings=None) -> None:
     """Creates an Ultrastar txt file from the automation data"""
 
     print(f"{ULTRASINGER_HEAD} Creating UltraStar file {ultrastar_file_output}")
@@ -47,7 +56,31 @@ def create_ultrastar_txt(
     ultrastar_bpm = real_bpm_to_ultrastar_bpm(real_bpm)
     multiplication = get_multiplier(ultrastar_bpm)
     ultrastar_bpm = ultrastar_bpm * get_multiplier(ultrastar_bpm)
-    silence_split_duration = calculate_silent_beat_length(midi_segments)
+    
+    # Calculate linebreaks
+    if settings and hasattr(settings, 'USE_OPTIMIZED_LINEBREAKS') and settings.USE_OPTIMIZED_LINEBREAKS and linebreak_optimizer_available:
+        # Use optimized linebreaks
+        print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('enhanced')} linebreak algorithm with BPM adaptation")
+        optimizer = LinebreakOptimizer(
+            optimal_syllables=settings.OPTIMAL_SYLLABLES_PER_LINE,
+            max_line_duration=settings.MAX_LINE_DURATION,
+            min_line_duration=settings.MIN_LINE_DURATION,
+            normal_bpm=settings.NORMAL_BPM,
+            syllable_tolerance=settings.SYLLABLE_TOLERANCE,
+            time_tolerance=settings.TIME_TOLERANCE
+        )
+        linebreaks = optimizer.calculate_linebreaks(
+            midi_segments, 
+            gap=midi_segments[0].start,
+            real_bpm=real_bpm, 
+            multiplication=multiplication
+        )
+        use_optimized = True
+    else:
+        # Use traditional silence-based algorithm
+        silence_split_duration = calculate_silent_beat_length(midi_segments)
+        print(f"{ULTRASINGER_HEAD} Using traditional linebreak algorithm with silence threshold {silence_split_duration:.2f}s")
+        use_optimized = False
 
     with open(ultrastar_file_output, "w", encoding=FILE_ENCODING) as file:
         gap = midi_segments[0].start
@@ -102,7 +135,7 @@ def create_ultrastar_txt(
             start_beat = round(second_to_beat(start_time, real_bpm))
             duration = round(second_to_beat(end_time, real_bpm))
 
-            # Fix the round issue, so the beats don’t overlap
+            # Fix the round issue, so the beats don't overlap
             start_beat = max(start_beat, previous_end_beat)
             previous_end_beat = start_beat + duration
 
@@ -125,25 +158,35 @@ def create_ultrastar_txt(
                    f"{midi_segment.word}\n"
 
             file.write(line)
+            
+            # Handle line breaks
+            if use_optimized:
+                # Check if this position has a linebreak in the optimized list
+                for pos, show_next in linebreaks:
+                    if i == pos:
+                        linebreak = f"{UltrastarTxtTag.LINEBREAK} {str(show_next)}\n"
+                        file.write(linebreak)
+                        break
+            else:
+                # Use traditional method based on silence
+                if not midi_segment.word.endswith(" "):
+                    separated_word_silence.append(silence)
+                    continue
 
-            # detect silence between words
-            if not midi_segment.word.endswith(" "):
-                separated_word_silence.append(silence)
-                continue
-
-            if i != len(midi_segments) - 1 and silence_split_duration != 0 and silence > silence_split_duration or any(
-                    s > silence_split_duration for s in separated_word_silence):
-                # - 10
-                # '-' end of current sing part
-                # 'n1' show next at time in real beat
-                show_next = (
-                        second_to_beat(midi_segment.end - gap, real_bpm)
-                        * multiplication
-                )
-                linebreak = f"{UltrastarTxtTag.LINEBREAK} " \
-                            f"{str(round(show_next))}\n"
-                file.write(linebreak)
-            separated_word_silence = []
+                if i != len(midi_segments) - 1 and silence_split_duration != 0 and silence > silence_split_duration or any(
+                        s > silence_split_duration for s in separated_word_silence):
+                    # - 10
+                    # '-' end of current sing part
+                    # 'n1' show next at time in real beat
+                    show_next = (
+                            second_to_beat(midi_segment.end - gap, real_bpm)
+                            * multiplication
+                    )
+                    linebreak = f"{UltrastarTxtTag.LINEBREAK} " \
+                                f"{str(round(show_next))}\n"
+                    file.write(linebreak)
+                separated_word_silence = []
+                
         file.write(f"{UltrastarTxtTag.FILE_END}")
 
 

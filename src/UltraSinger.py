@@ -417,7 +417,8 @@ def CreateUltraStarTxt(process_data: ProcessData):
             process_data.media_info,
             settings.format_version,
             settings.create_karaoke,
-            settings.APP_VERSION
+            settings.APP_VERSION,
+            settings
         )
     else:
         ultrastar_file_output = create_ultrastar_txt_from_midi_segments(

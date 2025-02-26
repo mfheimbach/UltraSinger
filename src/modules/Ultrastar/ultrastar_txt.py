@@ -1,10 +1,10 @@
-"""Ultrastar TXT"""
+﻿"""Ultrastar TXT"""
 
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import List
 
-FILE_ENCODING = "utf-8"
+FILE_ENCODING = "utf-8-sig"
 
 
 class UltrastarTxtTag(str, Enum):

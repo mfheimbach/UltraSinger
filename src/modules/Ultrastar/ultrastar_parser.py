@@ -1,5 +1,6 @@
-"""Ultrastar txt parser"""
+﻿"""Ultrastar txt parser"""
 import os
+import codecs
 
 from modules import os_helper
 

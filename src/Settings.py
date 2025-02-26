@@ -60,7 +60,7 @@ class Settings:
     # MuseScore
     musescore_path = None
 
-    # yt-dlp
+    # yt-dl
     cookiefile = None
 
     # UltraSinger Evaluation Configuration
@@ -71,3 +71,12 @@ class Settings:
     skip_cache_transcription = False
     skip_cache_pitch_detection = False
     calculate_score = True
+    
+    # Linebreak optimization parameters
+    OPTIMAL_SYLLABLES_PER_LINE = 10    # Target number of syllables per line
+    MAX_LINE_DURATION = 5.0            # Maximum line duration in seconds
+    MIN_LINE_DURATION = 2.0            # Minimum line duration in seconds
+    NORMAL_BPM = 120.0                 # Reference BPM for adaptation
+    SYLLABLE_TOLERANCE = 3.0           # Controls bell curve width for syllables
+    TIME_TOLERANCE = 1.0               # Controls bell curve width for time
+    USE_OPTIMIZED_LINEBREAKS = True    # Enable optimized linebreak algorithm
