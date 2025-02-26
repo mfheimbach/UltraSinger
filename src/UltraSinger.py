@@ -35,6 +35,7 @@ from modules.console_colors import (
 )
 from modules.Midi.midi_creator import (
     create_midi_segments_from_transcribed_data,
+    create_midi_segments_with_probability,
     create_repitched_midi_segments_from_ultrastar_txt,
     create_midi_file,
 )
@@ -42,6 +43,7 @@ from modules.Midi.MidiSegment import MidiSegment
 from modules.Midi.note_length_calculator import get_thirtytwo_note_second, get_sixteenth_note_second
 from modules.Pitcher.pitcher import (
     get_pitch_with_crepe_file,
+    pitch_original_audio,
 )
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
@@ -176,16 +178,27 @@ def run() -> tuple[str, Score, Score]:
     if settings.create_audio_chunks:
         create_audio_chunks(process_data)
 
-    # Pitch audio
+    # Pitch audio from both sources if needed
     process_data.pitched_data = pitch_audio(process_data.process_data_paths)
-
-    # Create Midi_Segments
+    
+    # Also process original audio if available
+    if settings.use_separated_vocal and not settings.ignore_audio:
+        process_data.original_pitched_data = pitch_original_audio(
+            process_data.process_data_paths.audio_output_file_path,
+            settings.crepe_model_capacity,
+            settings.crepe_step_size,
+            settings.tensorflow_device
+        )
+        process_data.has_original_pitched_data = True
+    
+    # Create Midi_Segments using probabilistic processing
     if not settings.ignore_audio:
-        process_data.midi_segments = create_midi_segments_from_transcribed_data(process_data.transcribed_data,
-                                                                                process_data.pitched_data)
+        process_data.midi_segments = create_midi_segments_with_probability(process_data)
     else:
-        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
-                                                                                       process_data.parsed_file)
+        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(
+            process_data.pitched_data,
+            process_data.parsed_file
+        )
 
     # Merge syllable segments
     if not settings.ignore_audio:
@@ -283,6 +296,10 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
                             real_bpm: float) -> tuple[list[MidiSegment], list[TranscribedData]]:
     """Merge sub-segments of a syllable where the pitch is the same"""
 
+    # Check if there are any segments to process
+    if not midi_segments or len(midi_segments) < 2:
+        return midi_segments, transcribed_data
+
     thirtytwo_note = get_thirtytwo_note_second(real_bpm)
     sixteenth_note = get_sixteenth_note_second(real_bpm)
 
@@ -292,8 +309,14 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
     previous_data = None
 
     for i, data in enumerate(transcribed_data):
+        # Skip this process if we don't have enough MIDI segments
+        if i >= len(midi_segments):
+            new_data.append(data)
+            continue
+
         is_note_short = (data.end - data.start) < thirtytwo_note
-        is_same_note = midi_segments[i].note == midi_segments[i - 1].note
+        # Only check is_same_note if i > 0
+        is_same_note = i > 0 and midi_segments[i].note == midi_segments[i - 1].note
         has_breath_pause = False
 
         if previous_data is not None:

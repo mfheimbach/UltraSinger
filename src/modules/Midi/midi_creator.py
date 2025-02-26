@@ -1,8 +1,9 @@
-"""Midi creator module"""
+﻿"""Midi creator module"""
 
 import math
 import os
 from collections import Counter
+from Settings import Settings
 
 import librosa
 import numpy as np
@@ -139,6 +140,49 @@ def create_midi_segments_from_transcribed_data(transcribed_data: list[Transcribe
         return midi_segments
 
 
+def create_midi_segments_with_probability(process_data):
+    """Create MIDI segments using probabilistic pitch processing."""
+    print(f"{ULTRASINGER_HEAD} Creating MIDI segments with {blue_highlighted('word-based pitch processing')}")
+    
+    # Import here to avoid circular imports
+    from modules.Pitcher.pitch_probability import process_with_lyrics, enhance_with_original_audio
+    
+    # Use both data sources if available
+    if hasattr(process_data, 'has_original_pitched_data') and process_data.has_original_pitched_data:
+        try:
+            # First enhance the pitched data with original audio
+            enhanced_data = enhance_with_original_audio(
+                process_data.pitched_data, 
+                process_data.original_pitched_data,
+                process_data.media_info.bpm
+            )
+            
+            # Then create segments based on words, using enhanced pitch data
+            midi_segments = process_with_lyrics(
+                enhanced_data, 
+                process_data.transcribed_data,
+                process_data.media_info.bpm
+            )
+            print(f"{ULTRASINGER_HEAD} Successfully processed with enhanced audio data")
+            
+        except Exception as e:
+            print(f"{ULTRASINGER_HEAD} Error during enhanced processing: {str(e)}")
+            print(f"{ULTRASINGER_HEAD} Falling back to standard processing")
+            midi_segments = process_with_lyrics(
+                process_data.pitched_data,
+                process_data.transcribed_data,
+                process_data.media_info.bpm
+            )
+    else:
+        # Fall back to using just the separated vocal data
+        midi_segments = process_with_lyrics(
+            process_data.pitched_data,
+            process_data.transcribed_data,
+            process_data.media_info.bpm
+        )
+    
+    return midi_segments
+
 def create_repitched_midi_segments_from_ultrastar_txt(pitched_data: PitchedData, ultrastar_txt: UltrastarTxtValue) -> list[MidiSegment]:
     start_times = []
     end_times = []
@@ -167,3 +211,49 @@ def create_midi_file(
 
     midi_output = os.path.join(song_output, f"{basename_without_ext}.mid")
     __create_midi(voice_instrument, real_bpm, midi_output, midi_segments)
+
+def attach_lyrics_to_notes(midi_segments, transcribed_data):
+    """Attach transcribed lyrics to note segments based on timing."""
+    if not transcribed_data or not midi_segments:
+        return midi_segments
+        
+    print(f"{ULTRASINGER_HEAD} Attaching {len(transcribed_data)} words to {len(midi_segments)} notes")
+    
+    # Create a mapping of time ranges for each note segment
+    note_time_ranges = []
+    for i, segment in enumerate(midi_segments):
+        note_time_ranges.append((segment.start, segment.end, i))
+    
+    # Create a copy of segments with placeholder words
+    result_segments = []
+    for segment in midi_segments:
+        result_segments.append(MidiSegment(
+            note=segment.note,
+            start=segment.start,
+            end=segment.end,
+            word="♪"  # Placeholder
+        ))
+    
+    # Match each word to a note based on timing overlap
+    for word_data in transcribed_data:
+        word = word_data.word
+        word_start = word_data.start
+        word_end = word_data.end
+        
+        best_overlap = 0
+        best_index = -1
+        
+        for start, end, idx in note_time_ranges:
+            # Calculate overlap
+            overlap_start = max(start, word_start)
+            overlap_end = min(end, word_end)
+            overlap = max(0, overlap_end - overlap_start)
+            
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_index = idx
+        
+        if best_index >= 0:
+            result_segments[best_index].word = word
+    
+    return result_segments
