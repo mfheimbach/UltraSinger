@@ -1,4 +1,4 @@
-﻿"""Common Prints"""
+"""Common Prints"""
 
 from modules.console_colors import ULTRASINGER_HEAD, gold_highlighted, light_blue_highlighted
 
@@ -41,11 +41,6 @@ def print_help() -> None:
     --whisper_batch_size    Reduce if low on GPU mem >> ((default) is 16)
     --whisper_compute_type  Change to "int8" if low on GPU mem (may reduce accuracy) >> ((default) is "float16" for cuda devices, "int8" for cpu)
     --keep_numbers          Numbers will be transcribed as numerics instead of as words >> True|False >> ((default) is False)
-    
-    [voice activity detection]
-    --disable_vad         Disable voice activity detection. VAD is enabled by default.
-    --vad_threshold       Threshold for voice activity detection (0.0-1.0). Default is 0.15.
-    
     
     [pitcher]
     # Default is crepe

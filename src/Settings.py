@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 
 from dataclasses_json import dataclass_json
 
@@ -83,67 +83,3 @@ class Settings:
     
     # Note sanity check parameters
     ENABLE_NOTE_OPTIMIZATIONS = True   # Enable note length and overlap optimizations
-    
-    # Multi-track vocal processing
-    USE_MULTI_TRACK_PROCESSING = True  # Master toggle
-    USE_MULTI_TRACK_LYRICS = True      # For transcription
-    USE_MULTI_TRACK_PITCH = True       # For pitch detection
-    MULTI_TRACK_MODELS = ["htdemucs", "htdemucs_6s", "htdemucs_ft"]  # Models to use
-    DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations, 3=interactive
-
-    # Multi-track transcription settings
-    USE_MULTI_TRACK_TRANSCRIPTION = True  # Master toggle for multi-track transcription
-    TRANSCRIPTION_MODEL_WEIGHTS = {
-        "htdemucs_ft": 0.6,  # Fine-tuned model (highest quality)
-        "htdemucs": 0.3,     # Default model
-        "htdemucs_6s": 0.4   # 6-source model (often better for vocals)
-    }
-    TRANSCRIPTION_DOMINANT_MODEL = "htdemucs_ft"  # Model to prioritize when in doubt
-    TRANSCRIPTION_DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations
-
-    # Combination parameters
-    PITCH_CONFIDENCE_THRESHOLDS = {
-        "htdemucs": 0.4,     # Primary/baseline
-        "htdemucs_6s": 0.3,  # More permissive
-        "htdemucs_ft": 0.5   # High quality
-    }
-    MULTI_TRACK_AGREEMENT_BONUS = 0.2  # Confidence boost when tracks agree
-    MIN_NOTE_DURATION = 0.35  # Minimum note duration in seconds
-    
-    # Voice Activity Detection settings
-    USE_VAD = True                     # Enable Voice Activity Detection
-    VAD_THRESHOLD = 0.15              # Threshold for considering a frame as vocal
-    VAD_ENERGY_THRESHOLD = 0.05       # Threshold for energy-based detection
-    VAD_CONFIDENCE_BOOST = 0.2        # Amount to boost confidence for vocal frames
-    VAD_MODEL_WEIGHTS = {             # Model-specific reliability weights
-        "htdemucs_ft": 0.6,           # Most reliable
-        "htdemucs": 0.3,              # Standard
-        "htdemucs_6s": 0.4            # More sources, better separation
-    }
-
-    # Note Regularization Settings
-    ENABLE_NOTE_REGULARIZATION = True  # Master toggle for the new regularization
-    NOTE_LOW_SIGNIFICANCE_THRESHOLD = 0.3  # Threshold for considering a note "low significance"
-    NOTE_HIGH_SIGNIFICANCE_THRESHOLD = 0.6  # Threshold for considering a note "high significance"
-    MAX_PITCH_DIFF_FOR_MERGE = 2.0  # Maximum semitone difference to allow merging notes
-    NOTE_SIGNIFICANCE_WEIGHTS = {
-        'duration': 0.35,       # Weight for duration component
-        'pitch_change': 0.25,   # Weight for pitch change component
-        'beat_alignment': 0.15, # Weight for beat alignment component
-        'word_boundary': 0.15,  # Weight for word boundary component
-        'vad': 0.10             # Weight for VAD confidence component
-    }
-    
-    # Multi-track transcription settings
-    USE_MULTI_TRACK_TRANSCRIPTION = True  # Master toggle for multi-track transcription
-    TRANSCRIPTION_MODEL_WEIGHTS = {
-        "htdemucs_ft": 0.6,  # Fine-tuned model (highest quality)
-        "htdemucs": 0.3,     # Default model
-        "htdemucs_6s": 0.4   # 6-source model (often better for vocals)
-    }
-    TRANSCRIPTION_DOMINANT_MODEL = "htdemucs_ft"  # Model to prioritize when in doubt
-    TRANSCRIPTION_DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations
-
-    # Word alignment settings
-    WORD_SIMILARITY_THRESHOLD = 0.7  # Minimum similarity to consider words matching
-    WORD_OVERLAP_THRESHOLD = 0.3    # Minimum time overlap to consider matching

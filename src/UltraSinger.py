@@ -11,10 +11,7 @@ from packaging import version
 from modules import os_helper
 from modules.init_interactive_mode import init_settings_interactive
 from modules.Audio.denoise import denoise_vocal_audio
-from modules.Audio.separation import (
-    separate_vocal_from_audio,
-    extract_multi_track_vocals,
-)
+from modules.Audio.separation import separate_vocal_from_audio
 from modules.Audio.vocal_chunks import (
     create_audio_chunks_from_transcribed_data,
     create_audio_chunks_from_ultrastar_data,
@@ -46,7 +43,7 @@ from modules.Midi.MidiSegment import MidiSegment
 from modules.Midi.note_length_calculator import get_thirtytwo_note_second, get_sixteenth_note_second
 from modules.Pitcher.pitcher import (
     get_pitch_with_crepe_file,
-    get_multi_track_pitch,
+    pitch_original_audio,
 )
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
@@ -155,12 +152,6 @@ def run() -> tuple[str, Score, Score]:
         print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Vocals will not be separated')}")
     if not settings.hyphenation:
         print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Hyphenation will not be applied')}")
-    if hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and settings.USE_MULTI_TRACK_PROCESSING:
-        print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track vocal processing enabled')}")
-        if hasattr(settings, 'USE_MULTI_TRACK_PITCH') and settings.USE_MULTI_TRACK_PITCH:
-            print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track pitch detection enabled')}")
-    if hasattr(settings, 'USE_VAD') and settings.USE_VAD:
-        print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Voice Activity Detection (VAD) enabled')}")
 
     process_data = InitProcessData()
 
@@ -187,16 +178,27 @@ def run() -> tuple[str, Score, Score]:
     if settings.create_audio_chunks:
         create_audio_chunks(process_data)
 
-    # Pitch audio - pass process_data for multi-track processing
-    process_data.pitched_data = pitch_audio(process_data.process_data_paths, process_data)
-
-    # Create Midi_Segments
+    # Pitch audio from both sources if needed
+    process_data.pitched_data = pitch_audio(process_data.process_data_paths)
+    
+    # Also process original audio if available
+    if settings.use_separated_vocal and not settings.ignore_audio:
+        process_data.original_pitched_data = pitch_original_audio(
+            process_data.process_data_paths.audio_output_file_path,
+            settings.crepe_model_capacity,
+            settings.crepe_step_size,
+            settings.tensorflow_device
+        )
+        process_data.has_original_pitched_data = True
+    
+    # Create Midi_Segments using probabilistic processing
     if not settings.ignore_audio:
-        process_data.midi_segments = create_midi_segments_from_transcribed_data(process_data.transcribed_data,
-                                                                                process_data.pitched_data)
+        process_data.midi_segments = create_midi_segments_with_probability(process_data)
     else:
-        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
-                                                                                       process_data.parsed_file)
+        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(
+            process_data.pitched_data,
+            process_data.parsed_file
+        )
 
     # Merge syllable segments
     if not settings.ignore_audio:
@@ -393,59 +395,9 @@ def InitProcessData():
 
 
 def TranscribeAudio(process_data):
-    """Transcribe audio with multi-track support"""
-    
-    # Check if multi-track transcription is enabled
-    use_multi_track = (hasattr(settings, 'USE_MULTI_TRACK_TRANSCRIPTION') and 
-                       settings.USE_MULTI_TRACK_TRANSCRIPTION and
-                       hasattr(process_data, 'vocal_tracks') and
-                       len(process_data.vocal_tracks) > 1)
-    
-    if use_multi_track:
-        # Use multi-track transcription
-        from modules.Speech_Recognition.multi_track_whisper import transcribe_multiple_tracks, analyze_transcription_quality
-        
-        # Get model weights and dominant model from settings
-        model_weights = getattr(settings, 'TRANSCRIPTION_MODEL_WEIGHTS', {
-            "htdemucs_ft": 0.6,
-            "htdemucs": 0.3,
-            "htdemucs_6s": 0.4
-        })
-        
-        dominant_model = getattr(settings, 'TRANSCRIPTION_DOMINANT_MODEL', "htdemucs_ft")
-        
-        # Run multi-track transcription
-        transcription_result, results_by_model = transcribe_multiple_tracks(
-            process_data.vocal_tracks,
-            settings.whisper_model,
-            settings.pytorch_device,
-            settings.whisper_align_model,
-            settings.whisper_batch_size,
-            settings.whisper_compute_type,
-            settings.language,
-            settings.keep_numbers,
-            process_data.process_data_paths.cache_folder_path,
-            settings.skip_cache_transcription,
-            model_weights,
-            dominant_model
-        )
-        
-        # Analyze transcription quality if debug level is high enough
-        debug_level = getattr(settings, 'TRANSCRIPTION_DEBUG_LEVEL', 1)
-        if debug_level >= 1:
-            analyze_transcription_quality(results_by_model, transcription_result)
-        
-        # Store results in ProcessData
-        if hasattr(process_data, 'transcription_results'):
-            process_data.transcription_results = results_by_model
-    else:
-        # Use original single-track transcription
-        transcription_result = transcribe_audio(
-            process_data.process_data_paths.cache_folder_path,
-            process_data.process_data_paths.processing_audio_path
-        )
+    transcription_result = transcribe_audio(process_data.process_data_paths.cache_folder_path,
+                                            process_data.process_data_paths.processing_audio_path)
 
-    # Update process_data with transcription result
     if process_data.media_info.language is None:
         process_data.media_info.language = transcription_result.detected_language
 
@@ -479,50 +431,11 @@ def CreateUltraStarTxt(process_data: ProcessData):
         vocals_output_path = os.path.join(settings.output_folder_path, process_data.basename + " [Vocals].mp3")
         convert_wav_to_mp3(process_data.process_data_paths.vocals_audio_file_path, vocals_output_path)
 
-    # Apply note regularization if enabled (ADD THIS SECTION)
-    if hasattr(settings, 'ENABLE_NOTE_REGULARIZATION') and settings.ENABLE_NOTE_REGULARIZATION:
-        from modules.Pitcher.note_regularization import regularize_notes
-        process_data.midi_segments = regularize_notes(
-            process_data.midi_segments,
-            process_data.media_info.bpm,
-            process_data.transcribed_data,
-            process_data.pitched_data,
-            getattr(process_data, 'vad_results', None),
-            settings
-        )
-    # Apply existing note optimizations if regularization is disabled but optimizations are enabled
-    elif hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
+    # Apply note optimizations if enabled
+    if hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
         from modules.Ultrastar.note_processor import optimize_midi_segments
-        process_data.midi_segments = optimize_midi_segments(
-            process_data.midi_segments, 
-            process_data.media_info.bpm
-        )
-    
-    # Use VAD segmentation if available and enabled
-    if (hasattr(settings, 'USE_VAD') and settings.USE_VAD and 
-        hasattr(process_data, 'vad_results') and process_data.vad_results):
-        from modules.Pitcher.vad_pitch_combiner import segment_notes_with_vad
-        
-        print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('VAD-based note segmentation')} for improved timing")
-        
-        # Get the first VAD result to use for segmentation
-        first_model = next(iter(process_data.vad_results.keys()))
-        timestamps, vad_scores = process_data.vad_results[first_model]
-        
-        # Use VAD to create better note segments
-        vad_midi_segments = segment_notes_with_vad(
-            process_data.pitched_data,
-            timestamps, 
-            vad_scores,
-            settings
-        )
-        
-        # Merge with transcribed data if available
-        if process_data.transcribed_data and len(process_data.transcribed_data) > 0:
-            from modules.Midi.midi_creator import attach_lyrics_to_notes
-            vad_midi_segments = attach_lyrics_to_notes(vad_midi_segments, process_data.transcribed_data)
-            process_data.midi_segments = vad_midi_segments
-    
+        process_data.midi_segments = optimize_midi_segments(process_data.midi_segments, process_data.media_info.bpm)
+
     # Create Ultrastar txt
     if not settings.ignore_audio:
         ultrastar_file_output = create_ultrastar_txt_from_automation(
@@ -553,60 +466,26 @@ def CreateUltraStarTxt(process_data: ProcessData):
 
 
 def CreateProcessAudio(process_data) -> str:
-    """Create process audio with optional multi-track extraction"""
     # Set processing audio to cache file
     process_data.process_data_paths.processing_audio_path = os.path.join(
         process_data.process_data_paths.cache_folder_path, process_data.basename + ".wav"
     )
     os_helper.create_folder(process_data.process_data_paths.cache_folder_path)
 
-    # Extract vocals - using multi-track if enabled
-    if hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and settings.USE_MULTI_TRACK_PROCESSING:
-        # Multi-track processing
-        vocal_track_folders = extract_multi_track_vocals(
-            process_data.process_data_paths.cache_folder_path,
-            process_data.process_data_paths.audio_output_file_path,
-            settings.use_separated_vocal,
-            settings.create_karaoke,
-            settings.pytorch_device,
-            models=settings.MULTI_TRACK_MODELS if hasattr(settings, 'MULTI_TRACK_MODELS') else None,
-            enabled=True,
-            skip_cache=settings.skip_cache_vocal_separation
-        )
-        
-        # Store vocal track paths for later use in pitch detection & transcription
-        process_data.vocal_tracks = {}
-        for model_name, folder_path in vocal_track_folders.items():
-            process_data.vocal_tracks[model_name] = os.path.join(folder_path, "vocals.wav")
-        
-        # Use the default model's separation for the main processing path
-        default_model = settings.demucs_model.value
-        if default_model in vocal_track_folders:
-            audio_separation_folder_path = vocal_track_folders[default_model]
-        else:
-            # Fall back to first available model
-            first_model = next(iter(vocal_track_folders.keys()))
-            audio_separation_folder_path = vocal_track_folders[first_model]
-            print(f"{ULTRASINGER_HEAD} {red_highlighted('Warning:')} Default model not available, using {blue_highlighted(first_model)} instead")
-    else:
-        # Original single-track approach
-        audio_separation_folder_path = separate_vocal_from_audio(
-            process_data.process_data_paths.cache_folder_path,
-            process_data.process_data_paths.audio_output_file_path,
-            settings.use_separated_vocal,
-            settings.create_karaoke,
-            settings.pytorch_device,
-            settings.demucs_model,
-            settings.skip_cache_vocal_separation
-        )
-        # Store the single vocal track for consistency
-        process_data.vocal_tracks = {settings.demucs_model.value: os.path.join(audio_separation_folder_path, "vocals.wav")}
-
-    # Set paths for main processing
+    # Separate vocal from audio
+    audio_separation_folder_path = separate_vocal_from_audio(
+        process_data.process_data_paths.cache_folder_path,
+        process_data.process_data_paths.audio_output_file_path,
+        settings.use_separated_vocal,
+        settings.create_karaoke,
+        settings.pytorch_device,
+        settings.demucs_model,
+        settings.skip_cache_vocal_separation
+    )
     process_data.process_data_paths.vocals_audio_file_path = os.path.join(audio_separation_folder_path, "vocals.wav")
-    process_data.process_data_paths.instrumental_audio_file_path = os.path.join(audio_separation_folder_path, "no_vocals.wav")
+    process_data.process_data_paths.instrumental_audio_file_path = os.path.join(audio_separation_folder_path,
+                                                                                "no_vocals.wav")
 
-    # Determine which audio to use for further processing
     if settings.use_separated_vocal:
         input_path = process_data.process_data_paths.vocals_audio_file_path
     else:
@@ -704,114 +583,29 @@ def infos_from_audio_input_file() -> tuple[str, str, str, MediaInfo]:
 
 
 def pitch_audio(
-        process_data_paths: ProcessDataPaths, process_data=None) -> PitchedData:
-    """Pitch audio with optional multi-track processing"""
+        process_data_paths: ProcessDataPaths) -> PitchedData:
+    """Pitch audio"""
 
-    # Check if multi-track processing is enabled
-    use_multi_track = (hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and 
-                       hasattr(settings, 'USE_MULTI_TRACK_PITCH') and
-                       settings.USE_MULTI_TRACK_PROCESSING and 
-                       settings.USE_MULTI_TRACK_PITCH and
-                       process_data is not None and
-                       hasattr(process_data, 'vocal_tracks') and
-                       len(process_data.vocal_tracks) > 1)
-    
-    # Check if VAD is enabled
-    use_vad = (hasattr(settings, 'USE_VAD') and
-               settings.USE_VAD and
-               process_data is not None and
-               hasattr(process_data, 'vocal_tracks'))
-    
-    if use_multi_track:
-        # Use multi-track approach
-        # Create a cache key based on all tracks and settings
-        track_names = sorted(process_data.vocal_tracks.keys())
-        track_str = '_'.join(track_names)
-        vad_str = 'vad' if use_vad else 'novad'
-        cache_key = f"multitrack_{track_str}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}_{vad_str}"
-        
-        pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{cache_key}.json")
-        cache_available = check_file_exists(pitched_data_path)
-        
-        if settings.skip_cache_pitch_detection or not cache_available:
-            if use_vad:
-                print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection with VAD')} with {len(process_data.vocal_tracks)} tracks")
-            else:
-                print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection')} with {len(process_data.vocal_tracks)} tracks")
-            
-            # Get debug settings
-            debug_level = settings.DEBUG_LEVEL if hasattr(settings, 'DEBUG_LEVEL') else 1
-            debug_dir = process_data_paths.cache_folder_path if debug_level >= 2 else None
-            
-            # Get confidence thresholds and agreement bonus
-            confidence_thresholds = (settings.PITCH_CONFIDENCE_THRESHOLDS 
-                                    if hasattr(settings, 'PITCH_CONFIDENCE_THRESHOLDS') else None)
-            agreement_bonus = (settings.MULTI_TRACK_AGREEMENT_BONUS 
-                              if hasattr(settings, 'MULTI_TRACK_AGREEMENT_BONUS') else 0.2)
-            
-            # Process all vocal tracks with optional VAD
-            pitched_data = get_multi_track_pitch(
-                vocal_tracks=process_data.vocal_tracks,
-                model_capacity=settings.crepe_model_capacity,
-                step_size=settings.crepe_step_size,
-                device=settings.tensorflow_device,
-                confidence_thresholds=confidence_thresholds,
-                agreement_bonus=agreement_bonus,
-                debug_level=debug_level,
-                output_dir=debug_dir,
-                vad_enabled=use_vad,
-                settings=settings
-            )
-            
-            # Store VAD results in process_data if available
-            if use_vad and hasattr(pitched_data, 'vad_results'):
-                process_data.vad_results = pitched_data.vad_results
-            
-            # Cache the result
-            pitched_data_json = pitched_data.to_json()
-            with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
-                file.write(pitched_data_json)
-        else:
-            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached multi-track pitch data")
-            with open(pitched_data_path) as file:
-                json = file.read()
-                pitched_data = PitchedData.from_json(json)
+    pitching_config = f"crepe_{settings.ignore_audio}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
+    pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
+    cache_available = check_file_exists(pitched_data_path)
+
+    if settings.skip_cache_transcription or not cache_available:
+        pitched_data = get_pitch_with_crepe_file(
+            process_data_paths.processing_audio_path,
+            settings.crepe_model_capacity,
+            settings.crepe_step_size,
+            settings.tensorflow_device,
+        )
+
+        pitched_data_json = pitched_data.to_json()
+        with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
+            file.write(pitched_data_json)
     else:
-        # Use single-track approach (original code)
-        pitching_config = f"crepe_{settings.ignore_audio}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
-        pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
-        cache_available = check_file_exists(pitched_data_path)
-
-        if settings.skip_cache_pitch_detection or not cache_available:
-            pitched_data = get_pitch_with_crepe_file(
-                process_data_paths.processing_audio_path,
-                settings.crepe_model_capacity,
-                settings.crepe_step_size,
-                settings.tensorflow_device,
-            )
-
-            # Apply VAD if enabled
-            if use_vad and len(process_data.vocal_tracks) > 0:
-                print(f"{ULTRASINGER_HEAD} Enhancing pitch data with {blue_highlighted('Voice Activity Detection')}")
-                from modules.Pitcher.pitcher import process_with_vad
-                pitched_data, vad_results = process_with_vad(
-                    process_data.vocal_tracks, 
-                    pitched_data, 
-                    settings
-                )
-                
-                # Store VAD results in process_data if available
-                if vad_results:
-                    process_data.vad_results = vad_results
-
-            pitched_data_json = pitched_data.to_json()
-            with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
-                file.write(pitched_data_json)
-        else:
-            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached pitch data")
-            with open(pitched_data_path) as file:
-                json = file.read()
-                pitched_data = PitchedData.from_json(json)
+        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached pitch data")
+        with open(pitched_data_path) as file:
+            json = file.read()
+            pitched_data = PitchedData.from_json(json)
 
     return pitched_data
 
@@ -938,10 +732,6 @@ def init_settings(argv: list[str]) -> Settings:
             settings.interactive_mode = True
         elif opt in ("--ffmpeg"):
             settings.user_ffmpeg_path = arg
-        elif opt in ("--disable_vad"):
-            settings.USE_VAD = False
-        elif opt in ("--vad_threshold"):
-            settings.VAD_THRESHOLD = float(arg)
     if settings.output_folder_path == "":
         if settings.input_file_path.startswith("https:"):
             dirname = os.getcwd()
@@ -982,8 +772,6 @@ def arg_options():
         "keep_numbers",
         "interactive",
         "cookiefile=",
-        "disable_vad",
-        "vad_threshold=",
         "ffmpeg="
     ]
     return long, short
