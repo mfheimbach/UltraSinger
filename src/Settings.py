@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 
 from dataclasses_json import dataclass_json
 
@@ -83,3 +83,19 @@ class Settings:
     
     # Note sanity check parameters
     ENABLE_NOTE_OPTIMIZATIONS = True   # Enable note length and overlap optimizations
+    
+    # Multi-track vocal processing
+    USE_MULTI_TRACK_PROCESSING = True  # Master toggle
+    USE_MULTI_TRACK_LYRICS = True      # For transcription
+    USE_MULTI_TRACK_PITCH = True       # For pitch detection
+    MULTI_TRACK_MODELS = ["htdemucs", "htdemucs_6s", "htdemucs_ft"]  # Models to use
+    DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations, 3=interactive
+
+    # Combination parameters
+    PITCH_CONFIDENCE_THRESHOLDS = {
+        "htdemucs": 0.4,     # Primary/baseline
+        "htdemucs_6s": 0.3,  # More permissive
+        "htdemucs_ft": 0.5   # High quality
+    }
+    MULTI_TRACK_AGREEMENT_BONUS = 0.2  # Confidence boost when tracks agree
+    MIN_NOTE_DURATION = 0.12  # Minimum note duration in seconds

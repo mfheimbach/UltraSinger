@@ -1,4 +1,4 @@
-"""Separate vocals from audio"""
+﻿"""Separate vocals from audio"""
 import os
 from enum import Enum
 
@@ -62,3 +62,88 @@ def separate_vocal_from_audio(cache_folder_path: str,
             print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached separated vocals")
 
     return audio_separation_path
+
+
+def extract_multi_track_vocals(
+    cache_folder_path: str,
+    audio_output_file_path: str,
+    use_separated_vocal: bool,
+    create_karaoke: bool,
+    pytorch_device: str,
+    models=None, 
+    enabled=True,
+    skip_cache: bool = False
+) -> dict:
+    """
+    Extract multiple vocal tracks using different Demucs models.
+    
+    Args:
+        cache_folder_path: Path to the cache folder
+        audio_output_file_path: Path to the audio file
+        use_separated_vocal: Whether to use separated vocals
+        create_karaoke: Whether to create karaoke files
+        pytorch_device: Device to use for processing
+        models: List of model names to use
+        enabled: Whether multi-track processing is enabled
+        skip_cache: Whether to skip using cached files
+        
+    Returns:
+        Dictionary with model names as keys and paths to the vocal track folders as values
+    """
+    if not enabled or not (use_separated_vocal or create_karaoke):
+        # Use default model if multi-track is disabled
+        model = DemucsModel.HTDEMUCS
+        path = separate_vocal_from_audio(
+            cache_folder_path, 
+            audio_output_file_path, 
+            use_separated_vocal, 
+            create_karaoke, 
+            pytorch_device, 
+            model, 
+            skip_cache
+        )
+        return {model.value: path}
+    
+    # Use default models if none specified
+    if models is None:
+        models = ["htdemucs", "htdemucs_6s", "htdemucs_ft"]
+    
+    print(f"{ULTRASINGER_HEAD} Extracting multiple vocal tracks with models: {blue_highlighted(', '.join(models))}")
+    
+    # Dictionary to store the path to each model's vocal track folder
+    vocal_track_folders = {}
+    
+    # Process each model
+    for model_name in models:
+        try:
+            model = DemucsModel(model_name)
+            path = separate_vocal_from_audio(
+                cache_folder_path, 
+                audio_output_file_path, 
+                use_separated_vocal, 
+                create_karaoke, 
+                pytorch_device, 
+                model, 
+                skip_cache
+            )
+            vocal_track_folders[model_name] = path
+            print(f"{ULTRASINGER_HEAD} {green_highlighted('Success')} Model {blue_highlighted(model_name)} extracted vocals → {path}")
+        except Exception as e:
+            print(f"{ULTRASINGER_HEAD} {red_highlighted('Error')} with model {blue_highlighted(model_name)}: {e}")
+    
+    # If no models succeeded, fall back to default
+    if not vocal_track_folders:
+        print(f"{ULTRASINGER_HEAD} {red_highlighted('Warning:')} No models succeeded, falling back to default model")
+        model = DemucsModel.HTDEMUCS
+        path = separate_vocal_from_audio(
+            cache_folder_path, 
+            audio_output_file_path, 
+            use_separated_vocal, 
+            create_karaoke, 
+            pytorch_device, 
+            model, 
+            skip_cache
+        )
+        vocal_track_folders[model.value] = path
+        
+    return vocal_track_folders

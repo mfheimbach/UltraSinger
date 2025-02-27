@@ -3,7 +3,7 @@ from modules.Speech_Recognition.TranscribedData import TranscribedData
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue
 from modules.Midi.MidiSegment import MidiSegment
-from typing import Optional, List
+from typing import Optional, List, Dict 
 
 @dataclass
 class ProcessDataPaths:
@@ -36,7 +36,5 @@ class ProcessData:
     pitched_data: Optional[PitchedData] = None
     midi_segments: Optional[List[MidiSegment]] = field(default_factory=list)
     parsed_file: Optional[UltrastarTxtValue] = None
-    original_pitched_data: Optional[PitchedData] = None
-    has_original_pitched_data: bool = False
-
+    vocal_tracks: Optional[Dict[str, str]] = field(default_factory=dict)  # Dict of model_name -> vocals.wav path
 

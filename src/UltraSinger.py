@@ -11,7 +11,10 @@ from packaging import version
 from modules import os_helper
 from modules.init_interactive_mode import init_settings_interactive
 from modules.Audio.denoise import denoise_vocal_audio
-from modules.Audio.separation import separate_vocal_from_audio
+from modules.Audio.separation import (
+    separate_vocal_from_audio,
+    extract_multi_track_vocals,
+)
 from modules.Audio.vocal_chunks import (
     create_audio_chunks_from_transcribed_data,
     create_audio_chunks_from_ultrastar_data,
@@ -43,7 +46,7 @@ from modules.Midi.MidiSegment import MidiSegment
 from modules.Midi.note_length_calculator import get_thirtytwo_note_second, get_sixteenth_note_second
 from modules.Pitcher.pitcher import (
     get_pitch_with_crepe_file,
-    pitch_original_audio,
+    get_multi_track_pitch,
 )
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
@@ -152,6 +155,10 @@ def run() -> tuple[str, Score, Score]:
         print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Vocals will not be separated')}")
     if not settings.hyphenation:
         print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Hyphenation will not be applied')}")
+    if hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and settings.USE_MULTI_TRACK_PROCESSING:
+        print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track vocal processing enabled')}")
+        if hasattr(settings, 'USE_MULTI_TRACK_PITCH') and settings.USE_MULTI_TRACK_PITCH:
+            print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track pitch detection enabled')}")
 
     process_data = InitProcessData()
 
@@ -178,27 +185,16 @@ def run() -> tuple[str, Score, Score]:
     if settings.create_audio_chunks:
         create_audio_chunks(process_data)
 
-    # Pitch audio from both sources if needed
-    process_data.pitched_data = pitch_audio(process_data.process_data_paths)
-    
-    # Also process original audio if available
-    if settings.use_separated_vocal and not settings.ignore_audio:
-        process_data.original_pitched_data = pitch_original_audio(
-            process_data.process_data_paths.audio_output_file_path,
-            settings.crepe_model_capacity,
-            settings.crepe_step_size,
-            settings.tensorflow_device
-        )
-        process_data.has_original_pitched_data = True
-    
-    # Create Midi_Segments using probabilistic processing
+    # Pitch audio - pass process_data for multi-track processing
+    process_data.pitched_data = pitch_audio(process_data.process_data_paths, process_data)
+
+    # Create Midi_Segments
     if not settings.ignore_audio:
-        process_data.midi_segments = create_midi_segments_with_probability(process_data)
+        process_data.midi_segments = create_midi_segments_from_transcribed_data(process_data.transcribed_data,
+                                                                                process_data.pitched_data)
     else:
-        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(
-            process_data.pitched_data,
-            process_data.parsed_file
-        )
+        process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
+                                                                                       process_data.parsed_file)
 
     # Merge syllable segments
     if not settings.ignore_audio:
@@ -466,26 +462,60 @@ def CreateUltraStarTxt(process_data: ProcessData):
 
 
 def CreateProcessAudio(process_data) -> str:
+    """Create process audio with optional multi-track extraction"""
     # Set processing audio to cache file
     process_data.process_data_paths.processing_audio_path = os.path.join(
         process_data.process_data_paths.cache_folder_path, process_data.basename + ".wav"
     )
     os_helper.create_folder(process_data.process_data_paths.cache_folder_path)
 
-    # Separate vocal from audio
-    audio_separation_folder_path = separate_vocal_from_audio(
-        process_data.process_data_paths.cache_folder_path,
-        process_data.process_data_paths.audio_output_file_path,
-        settings.use_separated_vocal,
-        settings.create_karaoke,
-        settings.pytorch_device,
-        settings.demucs_model,
-        settings.skip_cache_vocal_separation
-    )
-    process_data.process_data_paths.vocals_audio_file_path = os.path.join(audio_separation_folder_path, "vocals.wav")
-    process_data.process_data_paths.instrumental_audio_file_path = os.path.join(audio_separation_folder_path,
-                                                                                "no_vocals.wav")
+    # Extract vocals - using multi-track if enabled
+    if hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and settings.USE_MULTI_TRACK_PROCESSING:
+        # Multi-track processing
+        vocal_track_folders = extract_multi_track_vocals(
+            process_data.process_data_paths.cache_folder_path,
+            process_data.process_data_paths.audio_output_file_path,
+            settings.use_separated_vocal,
+            settings.create_karaoke,
+            settings.pytorch_device,
+            models=settings.MULTI_TRACK_MODELS if hasattr(settings, 'MULTI_TRACK_MODELS') else None,
+            enabled=True,
+            skip_cache=settings.skip_cache_vocal_separation
+        )
+        
+        # Store vocal track paths for later use in pitch detection & transcription
+        process_data.vocal_tracks = {}
+        for model_name, folder_path in vocal_track_folders.items():
+            process_data.vocal_tracks[model_name] = os.path.join(folder_path, "vocals.wav")
+        
+        # Use the default model's separation for the main processing path
+        default_model = settings.demucs_model.value
+        if default_model in vocal_track_folders:
+            audio_separation_folder_path = vocal_track_folders[default_model]
+        else:
+            # Fall back to first available model
+            first_model = next(iter(vocal_track_folders.keys()))
+            audio_separation_folder_path = vocal_track_folders[first_model]
+            print(f"{ULTRASINGER_HEAD} {red_highlighted('Warning:')} Default model not available, using {blue_highlighted(first_model)} instead")
+    else:
+        # Original single-track approach
+        audio_separation_folder_path = separate_vocal_from_audio(
+            process_data.process_data_paths.cache_folder_path,
+            process_data.process_data_paths.audio_output_file_path,
+            settings.use_separated_vocal,
+            settings.create_karaoke,
+            settings.pytorch_device,
+            settings.demucs_model,
+            settings.skip_cache_vocal_separation
+        )
+        # Store the single vocal track for consistency
+        process_data.vocal_tracks = {settings.demucs_model.value: os.path.join(audio_separation_folder_path, "vocals.wav")}
 
+    # Set paths for main processing
+    process_data.process_data_paths.vocals_audio_file_path = os.path.join(audio_separation_folder_path, "vocals.wav")
+    process_data.process_data_paths.instrumental_audio_file_path = os.path.join(audio_separation_folder_path, "no_vocals.wav")
+
+    # Determine which audio to use for further processing
     if settings.use_separated_vocal:
         input_path = process_data.process_data_paths.vocals_audio_file_path
     else:
@@ -583,29 +613,84 @@ def infos_from_audio_input_file() -> tuple[str, str, str, MediaInfo]:
 
 
 def pitch_audio(
-        process_data_paths: ProcessDataPaths) -> PitchedData:
-    """Pitch audio"""
+        process_data_paths: ProcessDataPaths, process_data=None) -> PitchedData:
+    """Pitch audio with optional multi-track processing"""
 
-    pitching_config = f"crepe_{settings.ignore_audio}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
-    pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
-    cache_available = check_file_exists(pitched_data_path)
-
-    if settings.skip_cache_transcription or not cache_available:
-        pitched_data = get_pitch_with_crepe_file(
-            process_data_paths.processing_audio_path,
-            settings.crepe_model_capacity,
-            settings.crepe_step_size,
-            settings.tensorflow_device,
-        )
-
-        pitched_data_json = pitched_data.to_json()
-        with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
-            file.write(pitched_data_json)
+    # Check if multi-track processing is enabled
+    use_multi_track = (hasattr(settings, 'USE_MULTI_TRACK_PROCESSING') and 
+                       hasattr(settings, 'USE_MULTI_TRACK_PITCH') and
+                       settings.USE_MULTI_TRACK_PROCESSING and 
+                       settings.USE_MULTI_TRACK_PITCH and
+                       process_data is not None and
+                       hasattr(process_data, 'vocal_tracks') and
+                       len(process_data.vocal_tracks) > 1)
+    
+    if use_multi_track:
+        # Use multi-track approach
+        # Create a cache key based on all tracks and settings
+        track_names = sorted(process_data.vocal_tracks.keys())
+        track_str = '_'.join(track_names)
+        cache_key = f"multitrack_{track_str}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
+        
+        pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{cache_key}.json")
+        cache_available = check_file_exists(pitched_data_path)
+        
+        if settings.skip_cache_pitch_detection or not cache_available:
+            print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection')} with {len(process_data.vocal_tracks)} tracks")
+            
+            # Get debug settings
+            debug_level = settings.DEBUG_LEVEL if hasattr(settings, 'DEBUG_LEVEL') else 1
+            debug_dir = process_data_paths.cache_folder_path if debug_level >= 2 else None
+            
+            # Get confidence thresholds and agreement bonus
+            confidence_thresholds = (settings.PITCH_CONFIDENCE_THRESHOLDS 
+                                    if hasattr(settings, 'PITCH_CONFIDENCE_THRESHOLDS') else None)
+            agreement_bonus = (settings.MULTI_TRACK_AGREEMENT_BONUS 
+                              if hasattr(settings, 'MULTI_TRACK_AGREEMENT_BONUS') else 0.2)
+            
+            # Process all vocal tracks
+            pitched_data = get_multi_track_pitch(
+                vocal_tracks=process_data.vocal_tracks,
+                model_capacity=settings.crepe_model_capacity,
+                step_size=settings.crepe_step_size,
+                device=settings.tensorflow_device,
+                confidence_thresholds=confidence_thresholds,
+                agreement_bonus=agreement_bonus,
+                debug_level=debug_level,
+                output_dir=debug_dir
+            )
+            
+            # Cache the result
+            pitched_data_json = pitched_data.to_json()
+            with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
+                file.write(pitched_data_json)
+        else:
+            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached multi-track pitch data")
+            with open(pitched_data_path) as file:
+                json = file.read()
+                pitched_data = PitchedData.from_json(json)
     else:
-        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached pitch data")
-        with open(pitched_data_path) as file:
-            json = file.read()
-            pitched_data = PitchedData.from_json(json)
+        # Use single-track approach (original code)
+        pitching_config = f"crepe_{settings.ignore_audio}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
+        pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
+        cache_available = check_file_exists(pitched_data_path)
+
+        if settings.skip_cache_pitch_detection or not cache_available:
+            pitched_data = get_pitch_with_crepe_file(
+                process_data_paths.processing_audio_path,
+                settings.crepe_model_capacity,
+                settings.crepe_step_size,
+                settings.tensorflow_device,
+            )
+
+            pitched_data_json = pitched_data.to_json()
+            with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
+                file.write(pitched_data_json)
+        else:
+            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached pitch data")
+            with open(pitched_data_path) as file:
+                json = file.read()
+                pitched_data = PitchedData.from_json(json)
 
     return pitched_data
 
