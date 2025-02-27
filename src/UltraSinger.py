@@ -393,9 +393,59 @@ def InitProcessData():
 
 
 def TranscribeAudio(process_data):
-    transcription_result = transcribe_audio(process_data.process_data_paths.cache_folder_path,
-                                            process_data.process_data_paths.processing_audio_path)
+    """Transcribe audio with multi-track support"""
+    
+    # Check if multi-track transcription is enabled
+    use_multi_track = (hasattr(settings, 'USE_MULTI_TRACK_TRANSCRIPTION') and 
+                       settings.USE_MULTI_TRACK_TRANSCRIPTION and
+                       hasattr(process_data, 'vocal_tracks') and
+                       len(process_data.vocal_tracks) > 1)
+    
+    if use_multi_track:
+        # Use multi-track transcription
+        from modules.Speech_Recognition.multi_track_whisper import transcribe_multiple_tracks, analyze_transcription_quality
+        
+        # Get model weights and dominant model from settings
+        model_weights = getattr(settings, 'TRANSCRIPTION_MODEL_WEIGHTS', {
+            "htdemucs_ft": 0.6,
+            "htdemucs": 0.3,
+            "htdemucs_6s": 0.4
+        })
+        
+        dominant_model = getattr(settings, 'TRANSCRIPTION_DOMINANT_MODEL', "htdemucs_ft")
+        
+        # Run multi-track transcription
+        transcription_result, results_by_model = transcribe_multiple_tracks(
+            process_data.vocal_tracks,
+            settings.whisper_model,
+            settings.pytorch_device,
+            settings.whisper_align_model,
+            settings.whisper_batch_size,
+            settings.whisper_compute_type,
+            settings.language,
+            settings.keep_numbers,
+            process_data.process_data_paths.cache_folder_path,
+            settings.skip_cache_transcription,
+            model_weights,
+            dominant_model
+        )
+        
+        # Analyze transcription quality if debug level is high enough
+        debug_level = getattr(settings, 'TRANSCRIPTION_DEBUG_LEVEL', 1)
+        if debug_level >= 1:
+            analyze_transcription_quality(results_by_model, transcription_result)
+        
+        # Store results in ProcessData
+        if hasattr(process_data, 'transcription_results'):
+            process_data.transcription_results = results_by_model
+    else:
+        # Use original single-track transcription
+        transcription_result = transcribe_audio(
+            process_data.process_data_paths.cache_folder_path,
+            process_data.process_data_paths.processing_audio_path
+        )
 
+    # Update process_data with transcription result
     if process_data.media_info.language is None:
         process_data.media_info.language = transcription_result.detected_language
 
@@ -429,10 +479,24 @@ def CreateUltraStarTxt(process_data: ProcessData):
         vocals_output_path = os.path.join(settings.output_folder_path, process_data.basename + " [Vocals].mp3")
         convert_wav_to_mp3(process_data.process_data_paths.vocals_audio_file_path, vocals_output_path)
 
-    # Apply note optimizations if enabled
-    if hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
+    # Apply note regularization if enabled (ADD THIS SECTION)
+    if hasattr(settings, 'ENABLE_NOTE_REGULARIZATION') and settings.ENABLE_NOTE_REGULARIZATION:
+        from modules.Pitcher.note_regularization import regularize_notes
+        process_data.midi_segments = regularize_notes(
+            process_data.midi_segments,
+            process_data.media_info.bpm,
+            process_data.transcribed_data,
+            process_data.pitched_data,
+            getattr(process_data, 'vad_results', None),
+            settings
+        )
+    # Apply existing note optimizations if regularization is disabled but optimizations are enabled
+    elif hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
         from modules.Ultrastar.note_processor import optimize_midi_segments
-        process_data.midi_segments = optimize_midi_segments(process_data.midi_segments, process_data.media_info.bpm)
+        process_data.midi_segments = optimize_midi_segments(
+            process_data.midi_segments, 
+            process_data.media_info.bpm
+        )
     
     # Use VAD segmentation if available and enabled
     if (hasattr(settings, 'USE_VAD') and settings.USE_VAD and 

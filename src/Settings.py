@@ -91,6 +91,16 @@ class Settings:
     MULTI_TRACK_MODELS = ["htdemucs", "htdemucs_6s", "htdemucs_ft"]  # Models to use
     DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations, 3=interactive
 
+    # Multi-track transcription settings
+    USE_MULTI_TRACK_TRANSCRIPTION = True  # Master toggle for multi-track transcription
+    TRANSCRIPTION_MODEL_WEIGHTS = {
+        "htdemucs_ft": 0.6,  # Fine-tuned model (highest quality)
+        "htdemucs": 0.3,     # Default model
+        "htdemucs_6s": 0.4   # 6-source model (often better for vocals)
+    }
+    TRANSCRIPTION_DOMINANT_MODEL = "htdemucs_ft"  # Model to prioritize when in doubt
+    TRANSCRIPTION_DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations
+
     # Combination parameters
     PITCH_CONFIDENCE_THRESHOLDS = {
         "htdemucs": 0.4,     # Primary/baseline
@@ -110,3 +120,30 @@ class Settings:
         "htdemucs": 0.3,              # Standard
         "htdemucs_6s": 0.4            # More sources, better separation
     }
+
+    # Note Regularization Settings
+    ENABLE_NOTE_REGULARIZATION = True  # Master toggle for the new regularization
+    NOTE_LOW_SIGNIFICANCE_THRESHOLD = 0.3  # Threshold for considering a note "low significance"
+    NOTE_HIGH_SIGNIFICANCE_THRESHOLD = 0.6  # Threshold for considering a note "high significance"
+    MAX_PITCH_DIFF_FOR_MERGE = 2.0  # Maximum semitone difference to allow merging notes
+    NOTE_SIGNIFICANCE_WEIGHTS = {
+        'duration': 0.35,       # Weight for duration component
+        'pitch_change': 0.25,   # Weight for pitch change component
+        'beat_alignment': 0.15, # Weight for beat alignment component
+        'word_boundary': 0.15,  # Weight for word boundary component
+        'vad': 0.10             # Weight for VAD confidence component
+    }
+    
+    # Multi-track transcription settings
+    USE_MULTI_TRACK_TRANSCRIPTION = True  # Master toggle for multi-track transcription
+    TRANSCRIPTION_MODEL_WEIGHTS = {
+        "htdemucs_ft": 0.6,  # Fine-tuned model (highest quality)
+        "htdemucs": 0.3,     # Default model
+        "htdemucs_6s": 0.4   # 6-source model (often better for vocals)
+    }
+    TRANSCRIPTION_DOMINANT_MODEL = "htdemucs_ft"  # Model to prioritize when in doubt
+    TRANSCRIPTION_DEBUG_LEVEL = 1  # 0=minimal, 1=basic stats, 2=visualizations
+
+    # Word alignment settings
+    WORD_SIMILARITY_THRESHOLD = 0.7  # Minimum similarity to consider words matching
+    WORD_OVERLAP_THRESHOLD = 0.3    # Minimum time overlap to consider matching
