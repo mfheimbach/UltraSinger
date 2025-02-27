@@ -98,4 +98,15 @@ class Settings:
         "htdemucs_ft": 0.5   # High quality
     }
     MULTI_TRACK_AGREEMENT_BONUS = 0.2  # Confidence boost when tracks agree
-    MIN_NOTE_DURATION = 0.12  # Minimum note duration in seconds
+    MIN_NOTE_DURATION = 0.35  # Minimum note duration in seconds
+    
+    # Voice Activity Detection settings
+    USE_VAD = True                     # Enable Voice Activity Detection
+    VAD_THRESHOLD = 0.15              # Threshold for considering a frame as vocal
+    VAD_ENERGY_THRESHOLD = 0.05       # Threshold for energy-based detection
+    VAD_CONFIDENCE_BOOST = 0.2        # Amount to boost confidence for vocal frames
+    VAD_MODEL_WEIGHTS = {             # Model-specific reliability weights
+        "htdemucs_ft": 0.6,           # Most reliable
+        "htdemucs": 0.3,              # Standard
+        "htdemucs_6s": 0.4            # More sources, better separation
+    }

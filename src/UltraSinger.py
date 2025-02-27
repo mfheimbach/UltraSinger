@@ -159,6 +159,8 @@ def run() -> tuple[str, Score, Score]:
         print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track vocal processing enabled')}")
         if hasattr(settings, 'USE_MULTI_TRACK_PITCH') and settings.USE_MULTI_TRACK_PITCH:
             print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Multi-track pitch detection enabled')}")
+    if hasattr(settings, 'USE_VAD') and settings.USE_VAD:
+        print(f"{ULTRASINGER_HEAD} {bright_green_highlighted('Option:')} {cyan_highlighted('Voice Activity Detection (VAD) enabled')}")
 
     process_data = InitProcessData()
 
@@ -431,7 +433,32 @@ def CreateUltraStarTxt(process_data: ProcessData):
     if hasattr(settings, 'ENABLE_NOTE_OPTIMIZATIONS') and settings.ENABLE_NOTE_OPTIMIZATIONS:
         from modules.Ultrastar.note_processor import optimize_midi_segments
         process_data.midi_segments = optimize_midi_segments(process_data.midi_segments, process_data.media_info.bpm)
-
+    
+    # Use VAD segmentation if available and enabled
+    if (hasattr(settings, 'USE_VAD') and settings.USE_VAD and 
+        hasattr(process_data, 'vad_results') and process_data.vad_results):
+        from modules.Pitcher.vad_pitch_combiner import segment_notes_with_vad
+        
+        print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('VAD-based note segmentation')} for improved timing")
+        
+        # Get the first VAD result to use for segmentation
+        first_model = next(iter(process_data.vad_results.keys()))
+        timestamps, vad_scores = process_data.vad_results[first_model]
+        
+        # Use VAD to create better note segments
+        vad_midi_segments = segment_notes_with_vad(
+            process_data.pitched_data,
+            timestamps, 
+            vad_scores,
+            settings
+        )
+        
+        # Merge with transcribed data if available
+        if process_data.transcribed_data and len(process_data.transcribed_data) > 0:
+            from modules.Midi.midi_creator import attach_lyrics_to_notes
+            vad_midi_segments = attach_lyrics_to_notes(vad_midi_segments, process_data.transcribed_data)
+            process_data.midi_segments = vad_midi_segments
+    
     # Create Ultrastar txt
     if not settings.ignore_audio:
         ultrastar_file_output = create_ultrastar_txt_from_automation(
@@ -625,18 +652,28 @@ def pitch_audio(
                        hasattr(process_data, 'vocal_tracks') and
                        len(process_data.vocal_tracks) > 1)
     
+    # Check if VAD is enabled
+    use_vad = (hasattr(settings, 'USE_VAD') and
+               settings.USE_VAD and
+               process_data is not None and
+               hasattr(process_data, 'vocal_tracks'))
+    
     if use_multi_track:
         # Use multi-track approach
         # Create a cache key based on all tracks and settings
         track_names = sorted(process_data.vocal_tracks.keys())
         track_str = '_'.join(track_names)
-        cache_key = f"multitrack_{track_str}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}"
+        vad_str = 'vad' if use_vad else 'novad'
+        cache_key = f"multitrack_{track_str}_{settings.crepe_model_capacity}_{settings.crepe_step_size}_{settings.tensorflow_device}_{vad_str}"
         
         pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{cache_key}.json")
         cache_available = check_file_exists(pitched_data_path)
         
         if settings.skip_cache_pitch_detection or not cache_available:
-            print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection')} with {len(process_data.vocal_tracks)} tracks")
+            if use_vad:
+                print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection with VAD')} with {len(process_data.vocal_tracks)} tracks")
+            else:
+                print(f"{ULTRASINGER_HEAD} Using {blue_highlighted('multi-track pitch detection')} with {len(process_data.vocal_tracks)} tracks")
             
             # Get debug settings
             debug_level = settings.DEBUG_LEVEL if hasattr(settings, 'DEBUG_LEVEL') else 1
@@ -648,7 +685,7 @@ def pitch_audio(
             agreement_bonus = (settings.MULTI_TRACK_AGREEMENT_BONUS 
                               if hasattr(settings, 'MULTI_TRACK_AGREEMENT_BONUS') else 0.2)
             
-            # Process all vocal tracks
+            # Process all vocal tracks with optional VAD
             pitched_data = get_multi_track_pitch(
                 vocal_tracks=process_data.vocal_tracks,
                 model_capacity=settings.crepe_model_capacity,
@@ -657,8 +694,14 @@ def pitch_audio(
                 confidence_thresholds=confidence_thresholds,
                 agreement_bonus=agreement_bonus,
                 debug_level=debug_level,
-                output_dir=debug_dir
+                output_dir=debug_dir,
+                vad_enabled=use_vad,
+                settings=settings
             )
+            
+            # Store VAD results in process_data if available
+            if use_vad and hasattr(pitched_data, 'vad_results'):
+                process_data.vad_results = pitched_data.vad_results
             
             # Cache the result
             pitched_data_json = pitched_data.to_json()
@@ -682,6 +725,20 @@ def pitch_audio(
                 settings.crepe_step_size,
                 settings.tensorflow_device,
             )
+
+            # Apply VAD if enabled
+            if use_vad and len(process_data.vocal_tracks) > 0:
+                print(f"{ULTRASINGER_HEAD} Enhancing pitch data with {blue_highlighted('Voice Activity Detection')}")
+                from modules.Pitcher.pitcher import process_with_vad
+                pitched_data, vad_results = process_with_vad(
+                    process_data.vocal_tracks, 
+                    pitched_data, 
+                    settings
+                )
+                
+                # Store VAD results in process_data if available
+                if vad_results:
+                    process_data.vad_results = vad_results
 
             pitched_data_json = pitched_data.to_json()
             with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:
@@ -817,6 +874,10 @@ def init_settings(argv: list[str]) -> Settings:
             settings.interactive_mode = True
         elif opt in ("--ffmpeg"):
             settings.user_ffmpeg_path = arg
+        elif opt in ("--disable_vad"):
+            settings.USE_VAD = False
+        elif opt in ("--vad_threshold"):
+            settings.VAD_THRESHOLD = float(arg)
     if settings.output_folder_path == "":
         if settings.input_file_path.startswith("https:"):
             dirname = os.getcwd()
@@ -857,6 +918,8 @@ def arg_options():
         "keep_numbers",
         "interactive",
         "cookiefile=",
+        "disable_vad",
+        "vad_threshold=",
         "ffmpeg="
     ]
     return long, short
