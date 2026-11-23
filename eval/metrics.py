@@ -76,6 +76,7 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
     usdx_total = gp * weight
 
     return {
+        "transpose": _mode_shift(gpitch[have], ppitch[have]),
         "voicing_recall": rec,
         "voicing_precision": prec,
         "voicing_f1": f1,
@@ -86,6 +87,21 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
         "chroma_acc_cond": _safe((have & (dist == 0)).sum(), have.sum()),
         "usdx_medium": _safe(usdx_hits.sum(), usdx_total.sum()),
     }
+
+
+def _mode_shift(gt_pitch: np.ndarray, pred_pitch: np.ndarray) -> int:
+    """Most common chroma shift (semitones, -5..6) between prediction and ground truth.
+    Nonzero with a clear majority usually means the chart is transposed relative
+    to this audio file (wrong version / pitched master), i.e. a ground-truth problem."""
+    if gt_pitch.size == 0:
+        return 0
+    d = (pred_pitch - gt_pitch).astype(int) % 12
+    counts = np.bincount(d, minlength=12)
+    k = int(counts.argmax())
+    # only flag a clear shift: the mode must beat "no shift" by a wide margin
+    if k == 0 or counts[k] < 2 * counts[0]:
+        return 0
+    return k - 12 if k > 6 else k
 
 
 def best_offset(gt: Song, pred: Song, max_shift: float = 1.0, step: float = 0.02) -> float:
@@ -180,6 +196,7 @@ def evaluate_repitch(gt: Song, pred: Song) -> dict:
     d = _chroma_dist(g[m], p[m])
     w = dur[m]
     return {
+        "transpose": _mode_shift(g[m], p[m]),
         "notes": int(m.sum()),
         "note_chroma_acc": float((d == 0).mean()),
         "note_chroma_acc_pm1": float((d <= 1).mean()),

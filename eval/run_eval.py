@@ -34,8 +34,8 @@ import metrics  # noqa: E402
 import usdx  # noqa: E402
 
 HEADLINE = {
-    "full": ["usdx_medium", "chroma_acc", "voicing_f1", "onset_f1_100ms", "note_count_ratio", "wer", "best_offset_ms"],
-    "repitch": ["note_chroma_acc", "note_chroma_acc_pm1", "note_chroma_acc_dur", "octave_errors"],
+    "full": ["usdx_medium", "chroma_acc", "voicing_f1", "onset_f1_100ms", "note_count_ratio", "wer", "best_offset_ms", "transpose"],
+    "repitch": ["note_chroma_acc", "note_chroma_acc_pm1", "note_chroma_acc_dur", "octave_errors", "transpose"],
 }
 
 
@@ -43,7 +43,7 @@ def slug(name: str) -> str:
     return re.sub(r"[^\w\-. ]", "_", name).strip()
 
 
-def discover(songs_dir: str, only: list[str] | None) -> list[tuple[str, str]]:
+def discover(songs_dir: str, only: list[str] | None, exclude: list[str] | None = None) -> list[tuple[str, str]]:
     out = []
     songs_dir = os.path.abspath(songs_dir)
     for name in sorted(os.listdir(songs_dir)):
@@ -51,6 +51,8 @@ def discover(songs_dir: str, only: list[str] | None) -> list[tuple[str, str]]:
         if name.startswith(".") or not os.path.isdir(folder):
             continue
         if only and not any(o.lower() in name.lower() for o in only):
+            continue
+        if exclude and any(x.lower() in name.lower() for x in exclude):
             continue
         txt = usdx.find_song_txt(folder)
         if not txt:
@@ -121,6 +123,9 @@ def write_outputs(run_dir, mode, rows, config):
         vals = [r[c] for r in rows if isinstance(r.get(c), (int, float)) and r[c] == r[c]]
         means.append(f"**{sum(vals) / len(vals):.3f}**" if vals else "")
     lines.append("| **mean** | " + " | ".join(means) + " |")
+    shifted = [r["song"] for r in rows if r.get("transpose")]
+    if shifted:
+        lines += ["", f"Transposed vs. chart (check the ground truth): {', '.join(shifted)}"]
     open(os.path.join(run_dir, "summary.md"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
     print("\n".join(lines))
 
@@ -133,6 +138,7 @@ def main() -> None:
     ap.add_argument("--work", default=os.path.join(os.path.dirname(HERE), "eval_work"))
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="UltraSinger Settings override")
     ap.add_argument("--only", nargs="*", help="substring filter on song folder names")
+    ap.add_argument("--exclude", nargs="*", help="substring filter of songs to leave out")
     ap.add_argument("--score-only", action="store_true")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
@@ -144,7 +150,7 @@ def main() -> None:
     config = {"name": args.name, "mode": args.mode, "overrides": args.set}
     json.dump(config, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
 
-    songs = discover(args.songs, args.only)
+    songs = discover(args.songs, args.only, args.exclude)
     print(f"{len(songs)} songs")
     rows = []
     for i, (name, txt) in enumerate(songs, 1):
