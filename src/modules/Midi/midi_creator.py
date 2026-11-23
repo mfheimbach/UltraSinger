@@ -18,6 +18,60 @@ from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Pitcher.pitched_data_helper import get_frequencies_with_high_confidence
 from modules.Audio.key_detector import quantize_note_to_key
+from dataclasses import dataclass
+
+
+@dataclass
+class NotePitchOptions:
+    """How pitch frames inside a note are combined into one note.
+
+    The defaults reproduce the original behaviour (most frequent note name
+    over frames with confidence > 0.4)."""
+    method: str = "mode"            # mode | median | chroma_mode
+    conf_threshold: float = 0.4
+    edge_trim: float = 0.0          # fraction of frames dropped at each end (attack/release, slides)
+    tuning_correction: bool = False  # compensate recordings not tuned to A440
+    fmin: float = 0.0
+    fmax: float = 1e9
+
+
+def estimate_tuning_offset(pitched_data: PitchedData, conf_threshold: float = 0.4) -> float:
+    """Global tuning deviation in semitones (-0.5..0.5), circular mean over confident frames."""
+    f = np.asarray(pitched_data.frequencies, dtype=float)
+    c = np.asarray(pitched_data.confidence, dtype=float)
+    m = (c > conf_threshold) & (f > 0)
+    if m.sum() < 10:
+        return 0.0
+    frac = librosa.hz_to_midi(f[m]) % 1.0
+    angle = np.angle(np.mean(np.exp(2j * np.pi * frac)))
+    return float(angle / (2 * np.pi))
+
+
+def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float = 0.0) -> str:
+    f = np.asarray(freqs, dtype=float)
+    c = np.asarray(confs, dtype=float)
+    keep = (c > options.conf_threshold) & (f > options.fmin) & (f < options.fmax) & (f > 0)
+    if not keep.any():
+        keep = f > 0
+        if not keep.any():
+            return librosa.hz_to_note(float(freqs[0])) if len(freqs) else "C4"
+    idx = np.flatnonzero(keep)
+    if options.edge_trim > 0 and idx.size > 2:
+        cut = int(idx.size * options.edge_trim)
+        if idx.size - 2 * cut >= 1:
+            idx = idx[cut: idx.size - cut]
+    m = librosa.hz_to_midi(f[idx]) - tuning_offset
+    w = c[idx]
+    if options.method == "median":
+        midi = int(np.round(np.median(m)))
+    elif options.method == "chroma_mode":
+        r = np.round(m).astype(int)
+        chroma = int(np.bincount(r % 12, weights=w, minlength=12).argmax())
+        med = np.median(m)
+        midi = int(min((o * 12 + chroma for o in range(11)), key=lambda x: abs(x - med)))
+    else:  # mode: identical to the original Counter over note names
+        midi = Counter(np.round(m).astype(int).tolist()).most_common(1)[0][0]
+    return librosa.midi_to_note(midi, unicode=False)
 
 def create_midi_instrument(midi_segments: list[MidiSegment]) -> object:
     """Converts an Ultrastar data to a midi instrument"""
@@ -84,7 +138,8 @@ def find_nearest_index(array: list[float], value: float) -> int:
 
 
 def create_midi_notes_from_pitched_data(start_times: list[float], end_times: list[float], words: list[str],
-                                         pitched_data: PitchedData, allowed_notes: set[str] = None) -> list[MidiSegment]:
+                                         pitched_data: PitchedData, allowed_notes: set[str] = None,
+                                         options: NotePitchOptions = None) -> list[MidiSegment]:
     """Create midi notes from pitched data
 
     Args:
@@ -99,13 +154,19 @@ def create_midi_notes_from_pitched_data(start_times: list[float], end_times: lis
     """
     print(f"{ULTRASINGER_HEAD} Creating midi_segments")
 
+    tuning_offset = 0.0
+    if options is not None and options.tuning_correction:
+        tuning_offset = estimate_tuning_offset(pitched_data, options.conf_threshold)
+        print(f"{ULTRASINGER_HEAD} Tuning offset {tuning_offset * 100:+.0f} cents")
+
     midi_segments = []
 
     for index, start_time in enumerate(start_times):
         end_time = end_times[index]
         word = str(words[index])
 
-        midi_segment = create_midi_note_from_pitched_data(start_time, end_time, pitched_data, word, allowed_notes)
+        midi_segment = create_midi_note_from_pitched_data(start_time, end_time, pitched_data, word, allowed_notes,
+                                                          options, tuning_offset)
         midi_segments.append(midi_segment)
 
         # todo: Progress?
@@ -114,7 +175,8 @@ def create_midi_notes_from_pitched_data(start_times: list[float], end_times: lis
 
 
 def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitched_data: PitchedData, word: str,
-                                        allowed_notes: set[str] = None) -> MidiSegment:
+                                        allowed_notes: set[str] = None, options: NotePitchOptions = None,
+                                        tuning_offset: float = 0.0) -> MidiSegment:
     """Create midi note from pitched data
 
     Args:
@@ -138,11 +200,12 @@ def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitch
         freqs = pitched_data.frequencies[start:end]
         confs = pitched_data.confidence[start:end]
 
-    conf_f = get_frequencies_with_high_confidence(freqs, confs)
-
-    notes = convert_frequencies_to_notes(conf_f)
-
-    note = most_frequent(notes)[0][0]
+    if options is None:
+        conf_f = get_frequencies_with_high_confidence(freqs, confs)
+        notes = convert_frequencies_to_notes(conf_f)
+        note = most_frequent(notes)[0][0]
+    else:
+        note = note_from_frames(freqs, confs, options, tuning_offset)
 
     if allowed_notes is not None:
         note = quantize_note_to_key(note, allowed_notes)
@@ -151,7 +214,8 @@ def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitch
 
 
 def create_midi_segments_from_transcribed_data(transcribed_data: list[TranscribedData], pitched_data: PitchedData,
-                                                allowed_notes: set[str] = None) -> list[MidiSegment]:
+                                                allowed_notes: set[str] = None,
+                                                options: NotePitchOptions = None) -> list[MidiSegment]:
     """Create MIDI segments from transcribed data
 
     Args:
@@ -172,11 +236,12 @@ def create_midi_segments_from_transcribed_data(transcribed_data: list[Transcribe
             end_times.append(midi_segment.end)
             words.append(midi_segment.word)
         midi_segments = create_midi_notes_from_pitched_data(start_times, end_times, words,
-                                                            pitched_data, allowed_notes)
+                                                            pitched_data, allowed_notes, options)
         return midi_segments
 
 
-def create_repitched_midi_segments_from_ultrastar_txt(pitched_data: PitchedData, ultrastar_txt: UltrastarTxtValue) -> list[MidiSegment]:
+def create_repitched_midi_segments_from_ultrastar_txt(pitched_data: PitchedData, ultrastar_txt: UltrastarTxtValue,
+                                                      options: NotePitchOptions = None) -> list[MidiSegment]:
     start_times = []
     end_times = []
     words = []
@@ -185,7 +250,7 @@ def create_repitched_midi_segments_from_ultrastar_txt(pitched_data: PitchedData,
         start_times.append(note_lines.startTime)
         end_times.append(note_lines.endTime)
         words.append(note_lines.word)
-    midi_segments = create_midi_notes_from_pitched_data(start_times, end_times, words, pitched_data)
+    midi_segments = create_midi_notes_from_pitched_data(start_times, end_times, words, pitched_data, options=options)
     return midi_segments
 
 

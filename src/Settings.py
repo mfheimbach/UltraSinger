@@ -47,6 +47,12 @@ class Settings:
     whisper_compute_type = None   # change to "int8" if low on GPU mem (may reduce accuracy)
     keep_numbers = False
 
+    # Note pitch: how pitch frames inside a note become one note (defaults = original behaviour)
+    note_pitch_method = "mode"  # mode|median|chroma_mode
+    note_pitch_conf_threshold = 0.4
+    note_pitch_edge_trim = 0.0  # fraction of frames ignored at each end of a note
+    note_pitch_tuning_correction = False  # compensate recordings not tuned to A440
+
     # Device
     pytorch_device = 'cpu'  # cpu|cuda
     force_cpu = False

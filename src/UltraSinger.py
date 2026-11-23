@@ -38,6 +38,7 @@ from modules.console_colors import (
 from modules.Midi.midi_creator import (
     create_midi_segments_from_transcribed_data,
     create_repitched_midi_segments_from_ultrastar_txt,
+    NotePitchOptions,
     create_midi_file,
 )
 from modules.Midi.MidiSegment import MidiSegment
@@ -197,6 +198,13 @@ def run() -> tuple[str, Score, Score]:
     # Pitch audio
     process_data.pitched_data = pitch_audio(process_data.process_data_paths)
 
+    note_pitch_options = NotePitchOptions(
+        method=settings.note_pitch_method,
+        conf_threshold=settings.note_pitch_conf_threshold,
+        edge_trim=settings.note_pitch_edge_trim,
+        tuning_correction=settings.note_pitch_tuning_correction,
+    )
+
     # Allowed keys for quantization
     allowed_notes_for_key = None
     if settings.quantize_to_key and not settings.ignore_audio:
@@ -207,11 +215,13 @@ def run() -> tuple[str, Score, Score]:
         process_data.midi_segments = create_midi_segments_from_transcribed_data(
             process_data.transcribed_data,
             process_data.pitched_data,
-            allowed_notes_for_key
+            allowed_notes_for_key,
+            note_pitch_options
         )
     else:
         process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
-                                                                                       process_data.parsed_file)
+                                                                                       process_data.parsed_file,
+                                                                                       note_pitch_options)
 
     # Merge syllable segments
     if not settings.ignore_audio:
@@ -711,7 +721,7 @@ def pitch_audio(
         process_data_paths: ProcessDataPaths) -> PitchedData:
     """Pitch audio"""
 
-    pitching_config = f"swiftf0_{settings.ignore_audio}"
+    pitching_config = f"swiftf0_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
     pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
     cache_available = check_file_exists(pitched_data_path)
 
