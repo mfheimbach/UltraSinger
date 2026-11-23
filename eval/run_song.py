@@ -48,6 +48,21 @@ def apply_overrides(settings, overrides: list[str]) -> None:
         setattr(settings, key, _coerce(getattr(settings, key), raw))
 
 
+LANG_ALIASES = {"englisch": "en", "deutsch": "de", "german": "de", "english": "en", "spanisch": "es",
+                "französisch": "fr", "italienisch": "it"}
+
+
+def language_code(name: str) -> str:
+    key = (name or "").strip().lower()
+    if key in LANG_ALIASES:
+        return LANG_ALIASES[key]
+    import langcodes
+    try:
+        return langcodes.find(key).language
+    except LookupError:
+        return "en"
+
+
 def share_separation_cache(cache: str, gt: usdx.Song) -> None:
     """Demucs output is cached under the input file's basename, which differs
     between modes (full copies the audio as 'Artist - Title.ext', repitch reads
@@ -72,6 +87,8 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache", required=True)
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    ap.add_argument("--oracle-lyrics", action="store_true",
+                    help="align the chart's own lyrics (no timing) instead of transcribing: upper bound for lyrics lookup")
     args = ap.parse_args()
 
     gt = usdx.read(args.gt)
@@ -102,6 +119,14 @@ def main() -> None:
         # re-pitch never needs instrumental/vocal stems written next to the output
         s.format_version = FormatVersion.V1_0_0
         s.create_karaoke = False
+
+    if args.oracle_lyrics:
+        lyrics_path = os.path.join(os.path.abspath(args.cache), "oracle_lyrics.txt")
+        os.makedirs(os.path.dirname(lyrics_path), exist_ok=True)
+        with open(lyrics_path, "w", encoding="utf-8") as f:
+            f.write(" ".join(gt.words()))
+        s.lyrics_file = lyrics_path
+        s.language = language_code(gt.language)
 
     apply_overrides(s, args.set)
     os.makedirs(s.output_folder_path, exist_ok=True)

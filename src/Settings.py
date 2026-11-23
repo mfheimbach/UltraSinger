@@ -47,6 +47,10 @@ class Settings:
     whisper_compute_type = None   # change to "int8" if low on GPU mem (may reduce accuracy)
     keep_numbers = False
 
+    # Known lyrics: plain-text file to align instead of transcribing (language must be set)
+    lyrics_file = None
+    lyrics_aligner = "wav2vec2"  # wav2vec2|qwen3
+
     # Qwen3-ASR (transcriber = "qwen3", needs `pip install qwen-asr`)
     qwen3_model = "Qwen/Qwen3-ASR-1.7B"  # or Qwen/Qwen3-ASR-0.6B
     qwen3_aligner = "Qwen/Qwen3-ForcedAligner-0.6B"

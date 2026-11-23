@@ -33,6 +33,20 @@ Audio never goes into git (`eval_data/` and `eval_work/` are ignored).
 | `full` | audio | the whole pipeline: separation, transcription, segmentation, pitch |
 | `repitch` | ground-truth txt + audio | pitch detection only (timings and lyrics come from the chart) |
 
+## Clips, oracle lyrics, sweeps
+
+- `make_clips.py --songs DIR --out DIR_clips [--seconds 45]` cuts each song to its
+  densest stretch of singing (cropped audio + matching chart). Lets large models
+  run on small machines; confirm wins on full songs.
+- `run_eval.py ... --oracle-lyrics` aligns the chart's own lyrics (plain text, no
+  timing) instead of transcribing: the upper bound for "download lyrics, then align".
+  `--set lyrics_aligner=qwen3` uses Qwen3-ForcedAligner instead of wav2vec2.
+- `sweep_note_pitch.py --songs DIR` grid-searches the note-pitch options in-process
+  from cached pitch tracks (seconds per configuration; needs one repitch run first).
+- Alternative transcriber: `--set transcriber=qwen3 [--set qwen3_model=Qwen/Qwen3-ASR-0.6B]`
+  (needs `pip install qwen-asr`; if it bumps `opentelemetry-api`, pin it back to
+  the version in uv.lock or WhisperX's VAD breaks).
+
 ## Metrics
 
 Frame level, 10 ms grid (robust to different note splits):

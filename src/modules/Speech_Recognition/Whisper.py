@@ -219,3 +219,21 @@ def convert_to_transcribed_data(result_aligned):
                 print(f"{red_highlighted(msg)}")
             transcribed_data.append(vtd)  # and add it to list
     return transcribed_data
+
+
+def align_lyrics_with_whisperx(
+    audio_path: str,
+    lyrics: str,
+    language: str,
+    device: str = "cpu",
+    alignment_model: str = None,
+) -> TranscriptionResult:
+    """Skip transcription: align known lyrics (plain text) to the audio with wav2vec2."""
+    print(f"{ULTRASINGER_HEAD} Aligning known lyrics with {blue_highlighted('wav2vec2')} ({language})")
+    audio = whisperx.load_audio(audio_path)
+    duration = len(audio) / whisperx.audio.SAMPLE_RATE
+    model_a, metadata = whisperx.load_align_model(language_code=language, device=device, model_name=alignment_model)
+    text = number_to_words(" ".join(lyrics.split()), language)
+    segments = [{"text": text, "start": 0.0, "end": duration}]
+    result_aligned = whisperx.align(segments, model_a, metadata, audio, device, return_char_alignments=False)
+    return TranscriptionResult(convert_to_transcribed_data(result_aligned), language)

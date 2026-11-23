@@ -72,7 +72,7 @@ def discover(songs_dir: str, only: list[str] | None, exclude: list[str] | None =
     return out
 
 
-def run_one(mode, name, txt, run_dir, cache_dir, overrides, timeout) -> tuple[bool, float]:
+def run_one(mode, name, txt, run_dir, cache_dir, overrides, timeout, extra=()) -> tuple[bool, float]:
     out = os.path.join(run_dir, slug(name))
     shutil.rmtree(out, ignore_errors=True)  # UltraSinger appends (1), (2) to existing folders
     os.makedirs(out)
@@ -80,6 +80,7 @@ def run_one(mode, name, txt, run_dir, cache_dir, overrides, timeout) -> tuple[bo
            "--out", out, "--cache", os.path.join(cache_dir, slug(name))]
     for o in overrides:
         cmd += ["--set", o]
+    cmd += list(extra)
     t0 = time.time()
     with open(os.path.join(out, "run.log"), "w", encoding="utf-8") as log:
         try:
@@ -149,6 +150,7 @@ def main() -> None:
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="UltraSinger Settings override")
     ap.add_argument("--only", nargs="*", help="substring filter on song folder names")
     ap.add_argument("--exclude", nargs="*", help="substring filter of songs to leave out")
+    ap.add_argument("--oracle-lyrics", action="store_true", help="align the chart's lyrics instead of transcribing")
     ap.add_argument("--score-only", action="store_true")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
@@ -162,7 +164,7 @@ def main() -> None:
         config = json.load(open(config_path))  # keep the settings the run was made with
         args.mode = config.get("mode", args.mode)
     else:
-        config = {"name": args.name, "mode": args.mode, "overrides": args.set}
+        config = {"name": args.name, "mode": args.mode, "overrides": args.set, "oracle_lyrics": args.oracle_lyrics}
         json.dump(config, open(config_path, "w"), indent=2)
 
     songs = discover(args.songs, args.only, args.exclude)
@@ -170,7 +172,8 @@ def main() -> None:
     rows = []
     for i, (name, txt) in enumerate(songs, 1):
         if not args.score_only:
-            ok, dt = run_one(args.mode, name, txt, run_dir, cache_dir, args.set, args.timeout)
+            extra = ["--oracle-lyrics"] if args.oracle_lyrics else []
+            ok, dt = run_one(args.mode, name, txt, run_dir, cache_dir, args.set, args.timeout, extra)
             print(f"[{i}/{len(songs)}] {name}: {'ok' if ok else 'FAILED'} in {dt:.0f}s")
         try:
             row = score_one(args.mode, name, txt, run_dir)

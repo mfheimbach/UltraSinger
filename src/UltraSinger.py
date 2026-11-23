@@ -625,6 +625,8 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
     """Transcribe audio with AI"""
     transcription_result = None
     whisper_align_model_string = None
+    if settings.lyrics_file:
+        return align_known_lyrics(cache_folder_path, processing_audio_path)
     if settings.transcriber == "whisper":
         if not settings.whisper_align_model is None:
             whisper_align_model_string = settings.whisper_align_model.replace("/", "_")
@@ -673,6 +675,32 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
     else:
         raise NotImplementedError
     return transcription_result
+
+
+def align_known_lyrics(cache_folder_path: str, processing_audio_path: str) -> TranscriptionResult:
+    """Align a provided plain-text lyrics file instead of transcribing."""
+    import hashlib
+    if not settings.language:
+        raise ValueError("lyrics_file needs language to be set (e.g. --language en)")
+    with open(settings.lyrics_file, encoding=FILE_ENCODING) as file:
+        lyrics = file.read()
+    device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
+    digest = hashlib.sha1(lyrics.encode("utf-8")).hexdigest()[:10]
+    cache_path = os.path.join(cache_folder_path, f"lyrics_{settings.lyrics_aligner}_{settings.language}_{digest}.json")
+    if not settings.skip_cache_transcription and check_file_exists(cache_path):
+        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached lyrics alignment")
+        with open(cache_path, encoding=FILE_ENCODING) as file:
+            return TranscriptionResult.from_json(file.read())
+    if settings.lyrics_aligner == "qwen3":
+        from modules.Speech_Recognition.Qwen3ASR import align_lyrics_with_qwen3
+        result = align_lyrics_with_qwen3(processing_audio_path, lyrics, settings.language, settings.qwen3_aligner, device)
+    else:
+        from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
+        result = align_lyrics_with_whisperx(processing_audio_path, lyrics, settings.language, device,
+                                            settings.whisper_align_model)
+    with open(cache_path, "w", encoding=FILE_ENCODING) as file:
+        file.write(result.to_json())
+    return result
 
 
 def infos_from_audio_video_input_file() -> tuple[str, str, str, MediaInfo]:

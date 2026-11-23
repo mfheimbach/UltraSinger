@@ -77,3 +77,26 @@ def transcribe_with_qwen3(
     if device == "cuda":
         torch.cuda.empty_cache()
     return TranscriptionResult(transcribed, detected)
+
+
+def align_lyrics_with_qwen3(
+    audio_path: str,
+    lyrics: str,
+    language: str,
+    aligner_name: str = "Qwen/Qwen3-ForcedAligner-0.6B",
+    device: str = "cpu",
+) -> TranscriptionResult:
+    """Skip transcription: align known lyrics (plain text) with Qwen3-ForcedAligner.
+    Note: the aligner takes at most 180 s of audio per call."""
+    from qwen_asr import Qwen3ForcedAligner
+
+    print(f"{ULTRASINGER_HEAD} Aligning known lyrics with {blue_highlighted(aligner_name)} ({language})")
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    aligner = Qwen3ForcedAligner.from_pretrained(aligner_name, dtype=dtype,
+                                                 device_map="cuda:0" if device == "cuda" else "cpu")
+    result = aligner.align(audio=audio_path, text=" ".join(lyrics.split()), language=_language_name(language))[0]
+    transcribed = [
+        TranscribedData(confidence=1.0, word=str(i.text).strip() + " ", start=float(i.start_time), end=float(i.end_time))
+        for i in result if str(i.text).strip()
+    ]
+    return TranscriptionResult(transcribed, language)
