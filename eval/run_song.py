@@ -54,6 +54,8 @@ LANG_ALIASES = {"englisch": "en", "deutsch": "de", "german": "de", "english": "e
 
 def language_code(name: str) -> str:
     key = (name or "").strip().lower()
+    if "roman" in key:
+        return "en"  # romanized lyrics: Latin-alphabet aligner fits better than the native-script one
     if key in LANG_ALIASES:
         return LANG_ALIASES[key]
     import langcodes
