@@ -678,6 +678,15 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
                 device,
                 settings.language,
             )
+            from modules.Speech_Recognition.Qwen3ASR import is_degenerate_alignment
+            if is_degenerate_alignment(transcription_result.transcribed_data):
+                # keep Qwen's words, redo the timing with wav2vec2
+                from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
+                print(f"{ULTRASINGER_HEAD} {red_highlighted('Qwen3 alignment collapsed')}, re-aligning with wav2vec2")
+                text = " ".join(t.word.strip() for t in transcription_result.transcribed_data)
+                transcription_result = align_lyrics_with_whisperx(
+                    processing_audio_path, text, settings.language or transcription_result.detected_language,
+                    device, settings.whisper_align_model)
             with open(transcription_path, "w", encoding=FILE_ENCODING) as file:
                 file.write(transcription_result.to_json())
         else:
@@ -704,10 +713,14 @@ def align_known_lyrics(cache_folder_path: str, processing_audio_path: str) -> Tr
         print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached lyrics alignment")
         with open(cache_path, encoding=FILE_ENCODING) as file:
             return TranscriptionResult.from_json(file.read())
+    result = None
     if settings.lyrics_aligner == "qwen3":
-        from modules.Speech_Recognition.Qwen3ASR import align_lyrics_with_qwen3
+        from modules.Speech_Recognition.Qwen3ASR import align_lyrics_with_qwen3, is_degenerate_alignment
         result = align_lyrics_with_qwen3(processing_audio_path, lyrics, settings.language, settings.qwen3_aligner, device)
-    else:
+        if is_degenerate_alignment(result.transcribed_data):
+            print(f"{ULTRASINGER_HEAD} {red_highlighted('Qwen3 alignment collapsed')}, falling back to wav2vec2")
+            result = None
+    if result is None:
         from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
         result = align_lyrics_with_whisperx(processing_audio_path, lyrics, settings.language, device,
                                             settings.whisper_align_model)
