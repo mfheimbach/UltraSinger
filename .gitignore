@@ -15,3 +15,7 @@ test_output
 output
 /UltraSinger*.spec
 /registry_path.txt
+
+# evaluation data and outputs
+eval_data/
+eval_work/

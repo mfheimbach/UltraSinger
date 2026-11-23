@@ -1,0 +1,2 @@
+mir_eval>=0.8
+jiwer>=4.0
