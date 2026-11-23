@@ -34,6 +34,17 @@
   ]
  ],
  [
+  "word_aligner",
+  [
+   {
+    "word_aligner": "wav2vec2"
+   },
+   {
+    "word_aligner": "qwen3"
+   }
+  ]
+ ],
+ [
   "transcription_audio",
   [
    {

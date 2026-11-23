@@ -515,9 +515,36 @@ def transcription_input_path(process_data) -> str:
     return paths.processing_audio_path
 
 
+def realign_with_qwen3(cache_folder_path: str, audio_path: str, result: TranscriptionResult) -> TranscriptionResult:
+    """Keep the transcript's words, take the timing from Qwen3-ForcedAligner."""
+    import hashlib
+    from modules.Speech_Recognition.Qwen3ASR import align_lyrics_with_qwen3, is_degenerate_alignment
+    text = " ".join(t.word.strip() for t in result.transcribed_data if t.word.strip())
+    if not text:
+        return result
+    language = settings.language or result.detected_language
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
+    cache_path = os.path.join(cache_folder_path, f"realign_qwen3_{language}_{digest}_{settings.transcription_audio}.json")
+    if not settings.skip_cache_transcription and check_file_exists(cache_path):
+        with open(cache_path, encoding=FILE_ENCODING) as file:
+            realigned = TranscriptionResult.from_json(file.read())
+    else:
+        device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
+        realigned = align_lyrics_with_qwen3(audio_path, text, language, settings.qwen3_aligner, device)
+        with open(cache_path, "w", encoding=FILE_ENCODING) as file:
+            file.write(realigned.to_json())
+    if is_degenerate_alignment(realigned.transcribed_data):
+        print(f"{ULTRASINGER_HEAD} {red_highlighted('Qwen3 alignment collapsed')}, keeping wav2vec2 timing")
+        return result
+    return TranscriptionResult(realigned.transcribed_data, result.detected_language)
+
+
 def TranscribeAudio(process_data):
     transcription_result = transcribe_audio(process_data.process_data_paths.cache_folder_path,
                                             transcription_input_path(process_data))
+    if settings.word_aligner == "qwen3" and not settings.lyrics_file and settings.transcriber == "whisper":
+        transcription_result = realign_with_qwen3(process_data.process_data_paths.cache_folder_path,
+                                                  transcription_input_path(process_data), transcription_result)
 
     if process_data.media_info.language is None:
         process_data.media_info.language = transcription_result.detected_language
