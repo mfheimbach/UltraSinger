@@ -43,21 +43,24 @@ def slug(name: str) -> str:
     return re.sub(r"[^\w\-. ]", "_", name).strip()
 
 
+def _song_folders(root: str):
+    """Every folder below root that holds an UltraStar txt (USDB Syncer may nest by artist)."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        if any(f.lower().endswith(".txt") for f in filenames) and usdx.find_song_txt(dirpath):
+            yield dirpath
+
+
 def discover(songs_dir: str, only: list[str] | None, exclude: list[str] | None = None) -> list[tuple[str, str]]:
     out = []
     songs_dir = os.path.abspath(songs_dir)
-    for name in sorted(os.listdir(songs_dir)):
-        folder = os.path.join(songs_dir, name)
-        if name.startswith(".") or not os.path.isdir(folder):
-            continue
+    for folder in _song_folders(songs_dir):
+        name = os.path.basename(folder)
         if only and not any(o.lower() in name.lower() for o in only):
             continue
         if exclude and any(x.lower() in name.lower() for x in exclude):
             continue
         txt = usdx.find_song_txt(folder)
-        if not txt:
-            print(f"skip {name}: no UltraStar txt")
-            continue
         song = usdx.read(txt)
         audio = song.audio_path()
         if not audio or not os.path.exists(audio):
@@ -123,6 +126,13 @@ def write_outputs(run_dir, mode, rows, config):
         vals = [r[c] for r in rows if isinstance(r.get(c), (int, float)) and r[c] == r[c]]
         means.append(f"**{sum(vals) / len(vals):.3f}**" if vals else "")
     lines.append("| **mean** | " + " | ".join(means) + " |")
+    clean = [r for r in rows if not r.get("transpose") and "error" not in r]
+    if len(clean) < len(rows):
+        cm = []
+        for c in cols:
+            vals = [r[c] for r in clean if isinstance(r.get(c), (int, float)) and r[c] == r[c]]
+            cm.append(f"**{sum(vals) / len(vals):.3f}**" if vals else "")
+        lines.append(f"| **mean, clean ({len(clean)})** | " + " | ".join(cm) + " |")
     shifted = [r["song"] for r in rows if r.get("transpose")]
     if shifted:
         lines += ["", f"Transposed vs. chart (check the ground truth): {', '.join(shifted)}"]
@@ -147,8 +157,13 @@ def main() -> None:
     run_dir = os.path.join(args.work, "runs", args.name)
     cache_dir = os.path.join(args.work, "cache")
     os.makedirs(run_dir, exist_ok=True)
-    config = {"name": args.name, "mode": args.mode, "overrides": args.set}
-    json.dump(config, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
+    config_path = os.path.join(run_dir, "config.json")
+    if args.score_only and os.path.exists(config_path):
+        config = json.load(open(config_path))  # keep the settings the run was made with
+        args.mode = config.get("mode", args.mode)
+    else:
+        config = {"name": args.name, "mode": args.mode, "overrides": args.set}
+        json.dump(config, open(config_path, "w"), indent=2)
 
     songs = discover(args.songs, args.only, args.exclude)
     print(f"{len(songs)} songs")

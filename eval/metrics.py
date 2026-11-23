@@ -167,8 +167,18 @@ def _norm_words(words: list[str]) -> str:
     return " ".join(out)
 
 
+# Charts in these languages are usually romanized while ASR writes native script,
+# so word error rates would be meaningless.
+NON_LATIN = ("japan", "chinese", "mandarin", "cantonese", "korean", "russian", "greek", "arab",
+             "hebrew", "hindi", "thai", "ukrain")
+
+
 def lyric_metrics(gt: Song, pred: Song) -> dict:
     import jiwer
+
+    lang = gt.language.lower()
+    if "roman" in lang or any(x in lang for x in NON_LATIN):
+        return {}
 
     ref, hyp = _norm_words(gt.words()), _norm_words(pred.words())
     if not ref:
