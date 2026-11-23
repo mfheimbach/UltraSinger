@@ -49,6 +49,7 @@ class WhisperModel(Enum):
     LARGE_V1 = "large-v1"
     LARGE_V2 = "large-v2"
     LARGE_V3 = "large-v3"
+    LARGE_V3_TURBO = "large-v3-turbo"
 
 #Addition for numbers to words (Using previous code from louispan in PR#135)
 def number_to_words(line,language='en'):

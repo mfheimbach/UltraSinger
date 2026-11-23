@@ -650,6 +650,26 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
             with open(transcription_path) as file:
                 json = file.read()
                 transcription_result = TranscriptionResult.from_json(json)
+    elif settings.transcriber == "qwen3":
+        from modules.Speech_Recognition.Qwen3ASR import transcribe_with_qwen3
+        device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
+        transcription_config = (f"qwen3_{settings.qwen3_model.replace('/', '_')}_"
+                                f"{settings.qwen3_aligner.replace('/', '_')}_{device}_{settings.language}")
+        transcription_path = os.path.join(cache_folder_path, f"{transcription_config}.json")
+        if settings.skip_cache_transcription or not check_file_exists(transcription_path):
+            transcription_result = transcribe_with_qwen3(
+                processing_audio_path,
+                settings.qwen3_model,
+                settings.qwen3_aligner,
+                device,
+                settings.language,
+            )
+            with open(transcription_path, "w", encoding=FILE_ENCODING) as file:
+                file.write(transcription_result.to_json())
+        else:
+            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached transcribed data")
+            with open(transcription_path, encoding=FILE_ENCODING) as file:
+                transcription_result = TranscriptionResult.from_json(file.read())
     else:
         raise NotImplementedError
     return transcription_result

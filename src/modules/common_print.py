@@ -34,7 +34,7 @@ def print_help() -> None:
 
     [transcription]
     # Default is whisper
-    --whisper               Multilingual model > tiny|base|small|medium|large-v1|large-v2|large-v3  >> ((default) is large-v2)
+    --whisper               Multilingual model > tiny|base|small|medium|large-v1|large-v2|large-v3|large-v3-turbo  >> ((default) is large-v2)
                             English-only model > tiny.en|base.en|small.en|medium.en
     --whisper_align_model   Use other languages model for Whisper provided from huggingface.co
     --language              Override the language detected by whisper, does not affect transcription but steps after transcription
