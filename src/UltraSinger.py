@@ -506,9 +506,18 @@ def InitProcessData():
     return process_data
 
 
+def transcription_input_path(process_data) -> str:
+    paths = process_data.process_data_paths
+    if settings.transcription_audio == "mix":
+        return paths.audio_output_file_path
+    if settings.transcription_audio == "vocals":
+        return paths.vocals_audio_file_path
+    return paths.processing_audio_path
+
+
 def TranscribeAudio(process_data):
     transcription_result = transcribe_audio(process_data.process_data_paths.cache_folder_path,
-                                            process_data.process_data_paths.processing_audio_path)
+                                            transcription_input_path(process_data))
 
     if process_data.media_info.language is None:
         process_data.media_info.language = transcription_result.detected_language
@@ -632,6 +641,8 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
             whisper_align_model_string = settings.whisper_align_model.replace("/", "_")
         whisper_device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
         transcription_config = f"{settings.transcriber}_{settings.whisper_model.value}_{whisper_device}_{whisper_align_model_string}_{settings.whisper_batch_size}_{settings.whisper_compute_type}_{settings.language}"
+        if settings.transcription_audio != "processed":
+            transcription_config += f"_{settings.transcription_audio}"
         transcription_path = os.path.join(cache_folder_path, f"{transcription_config}.json")
         cached_transcription_available = check_file_exists(transcription_path)
         if settings.skip_cache_transcription or not cached_transcription_available:
@@ -656,7 +667,8 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
         from modules.Speech_Recognition.Qwen3ASR import transcribe_with_qwen3
         device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
         transcription_config = (f"qwen3_{settings.qwen3_model.replace('/', '_')}_"
-                                f"{settings.qwen3_aligner.replace('/', '_')}_{device}_{settings.language}")
+                                f"{settings.qwen3_aligner.replace('/', '_')}_{device}_{settings.language}"
+                                f"_{settings.transcription_audio}")
         transcription_path = os.path.join(cache_folder_path, f"{transcription_config}.json")
         if settings.skip_cache_transcription or not check_file_exists(transcription_path):
             transcription_result = transcribe_with_qwen3(
@@ -686,7 +698,8 @@ def align_known_lyrics(cache_folder_path: str, processing_audio_path: str) -> Tr
         lyrics = file.read()
     device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
     digest = hashlib.sha1(lyrics.encode("utf-8")).hexdigest()[:10]
-    cache_path = os.path.join(cache_folder_path, f"lyrics_{settings.lyrics_aligner}_{settings.language}_{digest}.json")
+    cache_path = os.path.join(cache_folder_path,
+                              f"lyrics_{settings.lyrics_aligner}_{settings.language}_{digest}_{settings.transcription_audio}.json")
     if not settings.skip_cache_transcription and check_file_exists(cache_path):
         print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached lyrics alignment")
         with open(cache_path, encoding=FILE_ENCODING) as file:

@@ -1,0 +1,80 @@
+[
+ [
+  "separation",
+  [
+   {
+    "demucs_model": "htdemucs"
+   },
+   {
+    "demucs_model": "htdemucs_ft"
+   },
+   {
+    "demucs_model": "mdx_extra"
+   }
+  ]
+ ],
+ [
+  "transcriber",
+  [
+   {
+    "whisper_model": "large-v2"
+   },
+   {
+    "whisper_model": "large-v3-turbo"
+   },
+   {
+    "whisper_model": "large-v3"
+   },
+   {
+    "transcriber": "qwen3",
+    "qwen3_model": "Qwen/Qwen3-ASR-1.7B"
+   }
+  ]
+ ],
+ [
+  "transcription_audio",
+  [
+   {
+    "transcription_audio": "processed"
+   },
+   {
+    "transcription_audio": "vocals"
+   },
+   {
+    "transcription_audio": "mix"
+   }
+  ]
+ ],
+ [
+  "note_pitch",
+  [
+   {},
+   {
+    "note_pitch_method": "chroma_mode",
+    "note_pitch_tuning_correction": true
+   },
+   {
+    "note_pitch_tuning_correction": true
+   },
+   {
+    "note_pitch_method": "chroma_mode"
+   },
+   {
+    "note_pitch_method": "chroma_mode",
+    "note_pitch_tuning_correction": true,
+    "note_pitch_edge_trim": 0.15
+   }
+  ]
+ ],
+ [
+  "key_quantization",
+  [
+   {
+    "quantize_to_key": true
+   },
+   {
+    "quantize_to_key": false
+   }
+  ]
+ ]
+]
