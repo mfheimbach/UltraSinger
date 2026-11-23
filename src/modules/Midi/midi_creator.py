@@ -47,14 +47,15 @@ def estimate_tuning_offset(pitched_data: PitchedData, conf_threshold: float = 0.
     return float(angle / (2 * np.pi))
 
 
-def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float = 0.0) -> str:
+def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float = 0.0) -> tuple[str, float]:
+    """Returns the note name and the unrounded MIDI pitch (median of the used frames)."""
     f = np.asarray(freqs, dtype=float)
     c = np.asarray(confs, dtype=float)
     keep = (c > options.conf_threshold) & (f > options.fmin) & (f < options.fmax) & (f > 0)
     if not keep.any():
         keep = f > 0
         if not keep.any():
-            return librosa.hz_to_note(float(freqs[0])) if len(freqs) else "C4"
+            return ("C4", None) if not len(freqs) or freqs[0] <= 0 else (librosa.hz_to_note(float(freqs[0])), None)
     idx = np.flatnonzero(keep)
     if options.edge_trim > 0 and idx.size > 2:
         cut = int(idx.size * options.edge_trim)
@@ -71,7 +72,7 @@ def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: flo
         midi = int(min((o * 12 + chroma for o in range(11)), key=lambda x: abs(x - med)))
     else:  # mode: identical to the original Counter over note names
         midi = Counter(np.round(m).astype(int).tolist()).most_common(1)[0][0]
-    return librosa.midi_to_note(midi, unicode=False)
+    return librosa.midi_to_note(midi, unicode=False), float(np.median(m))
 
 def create_midi_instrument(midi_segments: list[MidiSegment]) -> object:
     """Converts an Ultrastar data to a midi instrument"""
@@ -200,15 +201,16 @@ def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitch
         freqs = pitched_data.frequencies[start:end]
         confs = pitched_data.confidence[start:end]
 
+    pitch_hint = None
     if options is None:
         conf_f = get_frequencies_with_high_confidence(freqs, confs)
         notes = convert_frequencies_to_notes(conf_f)
         note = most_frequent(notes)[0][0]
     else:
-        note = note_from_frames(freqs, confs, options, tuning_offset)
+        note, pitch_hint = note_from_frames(freqs, confs, options, tuning_offset)
 
     if allowed_notes is not None:
-        note = quantize_note_to_key(note, allowed_notes)
+        note = quantize_note_to_key(note, allowed_notes, pitch_hint)
 
     return MidiSegment(note, start_time, end_time, word)
 

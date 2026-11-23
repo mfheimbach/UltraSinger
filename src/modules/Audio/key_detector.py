@@ -83,13 +83,15 @@ def get_allowed_notes_for_key(key_note: str, mode: str) -> set[str]:
     return allowed_notes
 
 
-def quantize_note_to_key(note: str, allowed_notes: set[str]) -> str:
+def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float = None) -> str:
     """
     Quantize a note to the nearest allowed note in the key.
 
     Args:
         note: MIDI note name (e.g., 'C4', 'D#5')
         allowed_notes: Set of allowed note names without octave
+        pitch_hint: Optional unrounded MIDI pitch of the note. Breaks ties between
+            two equally distant allowed notes; without it the lower one wins.
 
     Returns:
         Quantized note name
@@ -120,7 +122,12 @@ def quantize_note_to_key(note: str, allowed_notes: set[str]) -> str:
     min_distance = float('inf')
     best_note = note
 
-    for allowed_note_name in allowed_notes:
+    best_midi = None
+    reference = pitch_hint if pitch_hint is not None else note_midi
+
+    # sorted(): set order depends on the per-process hash seed, so iterating the
+    # set directly made tie-breaking (and the output) differ from run to run
+    for allowed_note_name in sorted(allowed_notes):
         # Try same octave and adjacent octaves
         for oct_offset in [-1, 0, 1]:
             if not octave:
@@ -137,9 +144,15 @@ def quantize_note_to_key(note: str, allowed_notes: set[str]) -> str:
                 test_midi = librosa.note_to_midi(test_note)
                 distance = abs(test_midi - note_midi)
 
-                if distance < min_distance:
+                better = distance < min_distance
+                if not better and distance == min_distance and best_midi is not None:
+                    # tie: prefer the candidate closer to the measured pitch, then the lower one
+                    d_new, d_old = abs(test_midi - reference), abs(best_midi - reference)
+                    better = d_new < d_old or (d_new == d_old and test_midi < best_midi)
+                if better:
                     min_distance = distance
                     best_note = test_note
+                    best_midi = test_midi
             except:
                 continue
 
