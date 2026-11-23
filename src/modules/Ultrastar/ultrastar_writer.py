@@ -182,7 +182,7 @@ def create_repitched_txt_from_ultrastar_data(
 ) -> None:
     """Creates a repitched ultrastar txt file from the original one"""
     # todo: just add '_repitched' to input_file
-    print(f"{ULTRASINGER_HEAD} Creating repitched ultrastar txt -> {input_file}_repitch.txt")
+    print(f"{ULTRASINGER_HEAD} Creating repitched ultrastar txt -> {output_repitched_ultrastar}")
 
     # todo: to reader
     with open(input_file, "r", encoding=FILE_ENCODING) as file:
@@ -192,7 +192,13 @@ def create_repitched_txt_from_ultrastar_data(
     # todo: just add '_repitched' to input_file
     with open(output_repitched_ultrastar, "w", encoding=FILE_ENCODING) as file:
         for line in txt:
-            if line.startswith(f"{UltrastarTxtNoteTypeTag.NORMAL.value} "):
+            # every note type gets a midi segment, so every note line must consume one
+            if line.startswith((
+                    f"{UltrastarTxtNoteTypeTag.FREESTYLE.value} ",
+                    f"{UltrastarTxtNoteTypeTag.NORMAL.value} ",
+                    f"{UltrastarTxtNoteTypeTag.GOLDEN.value} ",
+                    f"{UltrastarTxtNoteTypeTag.RAP.value} ",
+                    f"{UltrastarTxtNoteTypeTag.RAP_GOLDEN.value} ")):
                 parts = re.findall(r"\S+|\s+", line)
                 # between are whitespaces
                 # [0] :
