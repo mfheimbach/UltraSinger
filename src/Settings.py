@@ -46,6 +46,9 @@ class Settings:
     whisper_batch_size = 16   # reduce if low on GPU mem
     whisper_compute_type = None   # change to "int8" if low on GPU mem (may reduce accuracy)
     keep_numbers = False
+    # Which audio the transcriber hears: processed (separated+denoised+muted, original
+    # behaviour) | vocals (separated, untouched) | mix (original audio, no separation)
+    transcription_audio = "processed"
 
     # Known lyrics: plain-text file to align instead of transcribing (language must be set)
     lyrics_file = None
