@@ -76,7 +76,10 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
     usdx_total = gp * weight
 
     return {
-        "transpose": _mode_shift(gpitch[have], ppitch[have]),
+        # informational only: in full mode a shift can come from UltraSinger itself
+        # (detuned recording + key quantization), so only repitch mode's
+        # "transpose" is trusted to flag a bad chart
+        "pitch_shift": _mode_shift(gpitch[have], ppitch[have]),
         "voicing_recall": rec,
         "voicing_precision": prec,
         "voicing_f1": f1,

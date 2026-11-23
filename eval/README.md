@@ -59,8 +59,10 @@ Frame level, 10 ms grid (robust to different note splits):
 - `chroma_acc_cond`: same, only where something was predicted. Separates
   "wrong pitch" from "missed the note".
 - `voicing_recall` / `voicing_precision` / `voicing_f1`: singing detected when it should be.
-- `transpose`: dominant semitone shift vs. the chart. Nonzero means the chart
-  is transposed relative to this audio (wrong version) — fix or drop the song.
+- `transpose` (repitch mode): dominant semitone shift vs. the chart. Nonzero means
+  the chart is transposed relative to this audio (wrong version) — fix or drop the
+  song (`--exclude`). Full mode reports the same as `pitch_shift`, informational
+  only, since there UltraSinger itself can cause a shift.
 - `best_offset_ms`: how late the prediction is overall. Large values mean a
   GAP/offset problem, not note problems.
 
@@ -84,6 +86,8 @@ anything that affects pitch, add `--set skip_cache_pitch_detection=true`.
 ## Notes
 
 - `--only` / `--exclude` filter songs by folder-name substring.
+- `check_charts.py --songs DIR` checks chart timing against the separated vocals
+  (independent of UltraSinger); combine with a repitch run's `transpose` to vet a new test set.
 - Runs each song in a subprocess (UltraSinger keeps settings in module globals).
 - MusicBrainz lookup and sheet-music export are stubbed out; metadata comes from the chart.
 - Whisper large-v2 needs more than 8 GB RAM on CPU; use `medium` on small machines.
