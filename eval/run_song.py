@@ -131,6 +131,10 @@ def main() -> None:
         s.language = language_code(gt.language)
 
     apply_overrides(s, args.set)
+    # Intermediate audio (denoised/mono/muted) and the transcription cache are not keyed
+    # by separation model, so non-default models get their own cache folder.
+    if s.demucs_model.value != "htdemucs":
+        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{s.demucs_model.value}")
     os.makedirs(s.output_folder_path, exist_ok=True)
     os.makedirs(s.cache_override_path, exist_ok=True)
     share_separation_cache(s.cache_override_path, gt)

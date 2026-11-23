@@ -22,25 +22,20 @@
   "transcriber",
   [
    {
-    "whisper_model": "large-v3-turbo"
+    "whisper_model": "large-v3-turbo",
+    "word_aligner": "wav2vec2"
    },
    {
-    "whisper_model": "medium"
+    "whisper_model": "large-v3-turbo",
+    "word_aligner": "qwen3"
+   },
+   {
+    "whisper_model": "medium",
+    "word_aligner": "wav2vec2"
    },
    {
     "transcriber": "qwen3",
     "qwen3_model": "Qwen/Qwen3-ASR-0.6B"
-   }
-  ]
- ],
- [
-  "word_aligner",
-  [
-   {
-    "word_aligner": "wav2vec2"
-   },
-   {
-    "word_aligner": "qwen3"
    }
   ]
  ],
