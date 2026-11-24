@@ -89,6 +89,8 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
         # same, but only where something was predicted: isolates pitch from voicing errors
         "chroma_acc_cond": _safe((have & (dist == 0)).sum(), have.sum()),
         "usdx_medium": _safe(usdx_hits.sum(), usdx_total.sum()),
+        # USDX hard: exact pitch class required
+        "usdx_hard": _safe(((gp & (dist == 0)) * weight).sum(), usdx_total.sum()),
     }
 
 

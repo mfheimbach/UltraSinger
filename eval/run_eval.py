@@ -34,7 +34,7 @@ import metrics  # noqa: E402
 import usdx  # noqa: E402
 
 HEADLINE = {
-    "full": ["usdx_medium", "chroma_acc", "voicing_f1", "onset_f1_100ms", "note_count_ratio", "wer", "best_offset_ms", "pitch_shift"],
+    "full": ["usdx_medium", "usdx_hard", "chroma_acc", "voicing_f1", "onset_f1_100ms", "note_count_ratio", "wer", "best_offset_ms", "pitch_shift"],
     "repitch": ["note_chroma_acc", "note_chroma_acc_pm1", "note_chroma_acc_dur", "octave_errors", "transpose"],
 }
 

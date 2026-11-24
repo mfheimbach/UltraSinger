@@ -34,7 +34,7 @@ def main() -> None:
     names = [os.path.basename(os.path.normpath(r)) for r in args.runs]
     songs = sorted(set.intersection(*(set(d) for d in data)))
     cols = [c for c in data[0][songs[0]] if c not in ("song", "language", "error")] if songs else []
-    metrics = args.metrics or [m for m in ("usdx_medium", "chroma_acc", "voicing_f1", "onset_f1_100ms",
+    metrics = args.metrics or [m for m in ("usdx_medium", "usdx_hard", "chroma_acc", "voicing_f1", "onset_f1_100ms",
                                            "note_count_ratio", "wer", "note_chroma_acc", "octave_errors") if m in cols]
 
     for m in metrics:
