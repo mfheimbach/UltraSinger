@@ -16,7 +16,7 @@ import numpy as np
 
 from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
 
-MAX_CHUNK_SECONDS = 30.0  # attention cost grows with length; split long audio at syllable gaps
+MAX_CHUNK_SECONDS = 30.0  # default; attention cost grows with length, long audio is split at syllable gaps
 
 
 class GameModel:
@@ -57,13 +57,15 @@ class GameModel:
         return durs[0][:n], presence[0][:n], scores[0][:n]
 
 
-def _chunks(syllables, total: float):
-    """Group syllables into chunks of <= MAX_CHUNK_SECONDS, cut in the middle of gaps."""
+def _chunks(syllables, total: float, max_seconds: float = MAX_CHUNK_SECONDS):
+    """Group syllables into chunks of about max_seconds, cut in the middle of gaps (0 = no chunking)."""
+    if max_seconds <= 0:
+        return [(0.0, total, list(syllables))]
     chunks, start, cur = [], 0.0, []
     for i, s in enumerate(syllables):
         cur.append(s)
         nxt = syllables[i + 1].start if i + 1 < len(syllables) else total
-        if nxt - start >= MAX_CHUNK_SECONDS or i + 1 == len(syllables):
+        if nxt - start >= max_seconds or i + 1 == len(syllables):
             end = total if i + 1 == len(syllables) else (s.end + nxt) / 2
             chunks.append((start, end, cur))
             start, cur = end, []
@@ -71,7 +73,8 @@ def _chunks(syllables, total: float):
 
 
 def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, model_dir: str,
-                            device: str = "cpu", boundary_threshold: float = 0.2, steps: int = 8):
+                            device: str = "cpu", boundary_threshold: float = 0.2, steps: int = 8,
+                            chunk_seconds: float = MAX_CHUNK_SECONDS):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
     print(f"{ULTRASINGER_HEAD} Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
     model = GameModel(model_dir, device)
@@ -81,7 +84,7 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
     syllables = [s for s in transcribed_data if s.end > s.start]
     result = {id(s): [] for s in syllables}
 
-    for c0, c1, chunk in _chunks(syllables, total):
+    for c0, c1, chunk in _chunks(syllables, total, chunk_seconds):
         wave = y[int(c0 * model.sr): int(c1 * model.sr)]
         # known regions: gap, syllable, gap, syllable, ..., gap (relative to chunk start)
         edges, regions, cursor = [], [], c0

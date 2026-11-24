@@ -439,7 +439,8 @@ def segment_with_game(process_data):
     syllables = process_data.transcribed_data
     key = json.dumps([[round(t.start, 3), round(t.end, 3)] for t in syllables]
                      + [settings.game_model_dir, settings.game_audio, settings.game_boundary_threshold,
-                        settings.game_steps, process_data.media_info.language])
+                        settings.game_steps, process_data.media_info.language]
+                     + ([settings.game_chunk_seconds] if settings.game_chunk_seconds != 30.0 else []))
     cache_path = os.path.join(paths.cache_folder_path, f"game_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json")
     if check_file_exists(cache_path) and not settings.skip_cache_pitch_detection:
         with open(cache_path, encoding=FILE_ENCODING) as file:
@@ -448,7 +449,8 @@ def segment_with_game(process_data):
         device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
         notes = game_notes_per_syllable(audio, syllables, process_data.media_info.language,
                                         settings.game_model_dir, device,
-                                        settings.game_boundary_threshold, settings.game_steps)
+                                        settings.game_boundary_threshold, settings.game_steps,
+                                        settings.game_chunk_seconds)
         per_index = [notes.get(id(t), []) for t in syllables]
         with open(cache_path, "w", encoding=FILE_ENCODING) as file:
             json.dump(per_index, file)
@@ -514,7 +516,8 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
                 semitone_diff = abs(curr_midi - prev_midi)
 
                 # Slide: Short duration AND small pitch jump (1-2 semitones)
-                is_potential_slide = (duration <= max_slide_duration and
+                is_potential_slide = (settings.merge_slides and
+                                     duration <= max_slide_duration and
                                      semitone_diff <= 2 and
                                      semitone_diff > 0)
             except:
@@ -523,7 +526,8 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
 
         # Check if current segment should be merged with previous due to same pitch
         should_merge_same_pitch = False
-        if (i > 0 and
+        if (settings.merge_same_pitch_syllables and
+            i > 0 and
             previous_data is not None and
             not is_tilde_segment and  # Not a ~ segment
             is_same_note and
