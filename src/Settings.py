@@ -76,6 +76,12 @@ class Settings:
     pitch_detector = "swiftf0"
     pitch_audio = "processed"
 
+    # Note segmentation inside syllables: grid (fixed 16th notes, then merge: original) |
+    # contour (split where the smoothed pitch moves to a new semitone for >= contour_min_duration)
+    note_segmentation = "grid"
+    contour_min_duration = 0.08
+    contour_smooth_frames = 5
+
     # Note pitch: how pitch frames inside a note become one note (defaults = original behaviour)
     note_pitch_method = "mode"  # mode|median|chroma_mode
     note_pitch_conf_threshold = 0.4

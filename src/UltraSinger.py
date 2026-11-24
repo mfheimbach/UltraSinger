@@ -195,17 +195,23 @@ def run() -> tuple[str, Score, Score]:
     if not settings.ignore_audio:
         TranscribeAudio(process_data)
 
+    # Pitch audio (before splitting: contour segmentation needs it)
+    process_data.pitched_data = pitch_audio(process_data.process_data_paths)
+
     # Split syllables into segments
     if not settings.ignore_audio:
-        process_data.transcribed_data = split_syllables_into_segments(process_data.transcribed_data,
-                                                                  process_data.media_info.bpm)
+        if settings.note_segmentation == "contour":
+            process_data.transcribed_data = split_syllables_by_contour(
+                process_data.transcribed_data, process_data.pitched_data,
+                settings.contour_min_duration, settings.contour_smooth_frames,
+                settings.note_pitch_conf_threshold, settings.note_pitch_tuning_correction)
+        else:
+            process_data.transcribed_data = split_syllables_into_segments(process_data.transcribed_data,
+                                                                          process_data.media_info.bpm)
 
     # Create audio chunks
     if settings.create_audio_chunks:
         create_audio_chunks(process_data)
-
-    # Pitch audio
-    process_data.pitched_data = pitch_audio(process_data.process_data_paths)
 
     note_pitch_options = NotePitchOptions(
         method=settings.note_pitch_method,
@@ -330,6 +336,85 @@ def split_syllables_into_segments(
             # Add remaining time to the last note
             new_data[-1].end += partial_segment
 
+        if has_space:
+            new_data[-1].word += " "
+            new_data[-1].is_word_end = True
+    return new_data
+
+
+def split_syllables_by_contour(
+        transcribed_data: list[TranscribedData],
+        pitched_data: PitchedData,
+        min_duration: float = 0.08,
+        smooth_frames: int = 5,
+        conf_threshold: float = 0.4,
+        tuning_correction: bool = True) -> list[TranscribedData]:
+    """Split syllables where the sung pitch actually changes (alternative to the fixed 16th grid).
+
+    Per syllable: smoothed semitone contour of the confident frames, run-length encoded;
+    runs shorter than min_duration are merged into the neighbour with the closer pitch.
+    Each remaining run becomes a sub-segment ("~" continuation like the grid split)."""
+    import numpy as np
+    from scipy.signal import medfilt
+    from modules.Midi.midi_creator import estimate_tuning_offset
+
+    times = np.asarray(pitched_data.times, dtype=float)
+    freqs = np.asarray(pitched_data.frequencies, dtype=float)
+    confs = np.asarray(pitched_data.confidence, dtype=float)
+    tuning = estimate_tuning_offset(pitched_data, conf_threshold) if tuning_correction else 0.0
+    kernel = smooth_frames if smooth_frames % 2 == 1 else smooth_frames + 1
+
+    new_data = []
+    for data in transcribed_data:
+        a, b = np.searchsorted(times, [data.start, data.end])
+        f, c = freqs[a:b], confs[a:b]
+        voiced = (c > conf_threshold) & (f > 0)
+        if data.end - data.start < 2 * min_duration or voiced.sum() < 3:
+            new_data.append(data)
+            continue
+        m = np.full(f.shape, np.nan)
+        m[voiced] = librosa.hz_to_midi(f[voiced]) - tuning
+        idx = np.arange(len(m))
+        m = np.interp(idx, idx[voiced], m[voiced])  # fill unvoiced gaps from neighbours
+        if len(m) >= kernel:
+            m = medfilt(m, kernel)
+        q = np.round(m).astype(int)
+
+        # run-length encode: [pitch, start_idx, end_idx)
+        runs = []
+        for i, v in enumerate(q):
+            if runs and runs[-1][0] == v:
+                runs[-1][2] = i + 1
+            else:
+                runs.append([v, i, i + 1])
+        frame_dt = (data.end - data.start) / max(len(q), 1)
+        while len(runs) > 1:
+            durs = [(r[2] - r[1]) * frame_dt for r in runs]
+            k = int(np.argmin(durs))
+            if durs[k] >= min_duration:
+                break
+            if k == 0:
+                j = 1
+            elif k == len(runs) - 1:
+                j = k - 1
+            else:
+                j = k - 1 if abs(runs[k - 1][0] - runs[k][0]) <= abs(runs[k + 1][0] - runs[k][0]) else k + 1
+            lo, hi = min(k, j), max(k, j)
+            runs[lo] = [runs[j][0], runs[lo][1], runs[hi][2]]
+            del runs[hi]
+
+        if len(runs) == 1:
+            new_data.append(data)
+            continue
+        has_space = str(data.word).endswith(" ")
+        for n, (_v, i0, i1) in enumerate(runs):
+            seg = copy.deepcopy(data) if n == 0 else TranscribedData()
+            seg.start = data.start + i0 * frame_dt
+            seg.end = data.start + i1 * frame_dt if n < len(runs) - 1 else data.end
+            seg.word = (data.word[:-1] if has_space else data.word) if n == 0 else "~"
+            seg.is_hyphen = True
+            seg.is_word_end = False
+            new_data.append(seg)
         if has_space:
             new_data[-1].word += " "
             new_data[-1].is_word_end = True
