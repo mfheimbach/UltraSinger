@@ -161,6 +161,12 @@ def transcribe_with_whisper(
 
         transcribed_data = convert_to_transcribed_data(result_aligned)
 
+        # free the models before later stages (e.g. Qwen3 re-alignment) load theirs
+        del loaded_whisper_model, model_a
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+
         return TranscriptionResult(transcribed_data, detected_language)
     except ValueError as value_error:
         # Restore original torch.load in case of error
