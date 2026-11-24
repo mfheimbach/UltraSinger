@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 from dataclasses_json import dataclass_json
@@ -81,6 +82,12 @@ class Settings:
     note_segmentation = "grid"
     contour_min_duration = 0.08
     contour_smooth_frames = 5
+    # note_segmentation = "game": GAME note extractor (ONNX), aligned to the syllable timings
+    game_model_dir = os.path.join(os.path.expanduser("~"), ".cache", "game", "GAME-1.0.3-medium-onnx")
+    game_audio = "vocals"  # vocals|mix|processed
+    game_pitch = False  # True: use GAME's note pitches instead of the pitch-track estimate
+    game_boundary_threshold = 0.2
+    game_steps = 8
 
     # Note pitch: how pitch frames inside a note become one note (defaults = original behaviour)
     note_pitch_method = "mode"  # mode|median|chroma_mode

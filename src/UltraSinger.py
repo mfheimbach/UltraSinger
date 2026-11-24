@@ -1,6 +1,7 @@
 """UltraSinger uses AI to automatically create UltraStar song files"""
 
 import copy
+import json
 import getopt
 import os
 import sys
@@ -200,7 +201,10 @@ def run() -> tuple[str, Score, Score]:
 
     # Split syllables into segments
     if not settings.ignore_audio:
-        if settings.note_segmentation == "contour":
+        game_pitches = None
+        if settings.note_segmentation == "game":
+            process_data.transcribed_data, game_pitches = segment_with_game(process_data)
+        elif settings.note_segmentation == "contour":
             process_data.transcribed_data = split_syllables_by_contour(
                 process_data.transcribed_data, process_data.pitched_data,
                 settings.contour_min_duration, settings.contour_smooth_frames,
@@ -238,6 +242,10 @@ def run() -> tuple[str, Score, Score]:
         process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
                                                                                        process_data.parsed_file,
                                                                                        note_pitch_options)
+
+    # GAME's own note pitches (optional)
+    if not settings.ignore_audio and settings.note_segmentation == "game" and settings.game_pitch and game_pitches:
+        apply_game_pitches(process_data.midi_segments, game_pitches, allowed_notes_for_key)
 
     # Merge syllable segments
     if not settings.ignore_audio:
@@ -419,6 +427,47 @@ def split_syllables_by_contour(
             new_data[-1].word += " "
             new_data[-1].is_word_end = True
     return new_data
+
+
+def segment_with_game(process_data):
+    """Split syllables at GAME's note boundaries (cached per syllable layout and settings)."""
+    import hashlib
+    from modules.Midi.game_segmenter import game_notes_per_syllable, split_syllables_by_game
+    paths = process_data.process_data_paths
+    audio = {"mix": paths.audio_output_file_path,
+             "processed": paths.processing_audio_path}.get(settings.game_audio, paths.vocals_audio_file_path)
+    syllables = process_data.transcribed_data
+    key = json.dumps([[round(t.start, 3), round(t.end, 3)] for t in syllables]
+                     + [settings.game_model_dir, settings.game_audio, settings.game_boundary_threshold,
+                        settings.game_steps, process_data.media_info.language])
+    cache_path = os.path.join(paths.cache_folder_path, f"game_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json")
+    if check_file_exists(cache_path) and not settings.skip_cache_pitch_detection:
+        with open(cache_path, encoding=FILE_ENCODING) as file:
+            per_index = json.load(file)
+    else:
+        device = "cpu" if settings.force_whisper_cpu else settings.pytorch_device
+        notes = game_notes_per_syllable(audio, syllables, process_data.media_info.language,
+                                        settings.game_model_dir, device,
+                                        settings.game_boundary_threshold, settings.game_steps)
+        per_index = [notes.get(id(t), []) for t in syllables]
+        with open(cache_path, "w", encoding=FILE_ENCODING) as file:
+            json.dump(per_index, file)
+    notes_by_id = {id(t): [tuple(n) for n in per_index[i]] for i, t in enumerate(syllables)}
+    return split_syllables_by_game(syllables, notes_by_id)
+
+
+def apply_game_pitches(midi_segments, game_pitches, allowed_notes):
+    from modules.Audio.key_detector import quantize_note_to_key
+    if len(midi_segments) != len(game_pitches):
+        print(f"{ULTRASINGER_HEAD} {red_highlighted('GAME pitch count mismatch, keeping pitch-track notes')}")
+        return
+    for seg, midi in zip(midi_segments, game_pitches):
+        if midi is None:
+            continue
+        note = librosa.midi_to_note(int(round(midi)), unicode=False)
+        if allowed_notes is not None:
+            note = quantize_note_to_key(note, allowed_notes, midi, settings.key_quantize_min_offset)
+        seg.note = note
 
 
 def merge_syllable_segments(midi_segments: list[MidiSegment],
