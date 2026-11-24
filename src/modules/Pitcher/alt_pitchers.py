@@ -61,7 +61,7 @@ def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu") -> PitchedData:
     mel = _rmvpe_mel(y)  # (128, T)
     n_frames = mel.shape[-1]
     hidden_parts = []
-    chunk = 32 * 1000  # ~320 s per pass keeps memory bounded
+    chunk = 32 * 250  # ~80 s per pass keeps memory bounded (full songs on 8 GB)
     for start in range(0, n_frames, chunk):
         part = mel[:, start:start + chunk]
         n = part.shape[-1]

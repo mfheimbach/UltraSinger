@@ -174,7 +174,16 @@ def run() -> tuple[str, Score, Score]:
 
     # Get BPM from wav file
     if not settings.input_file_is_ultrastar_txt:
-        process_data.media_info.bpm = get_bpm_from_file(process_data.process_data_paths.processing_audio_path)
+        paths = process_data.process_data_paths
+        bpm_input = {"mix": paths.audio_output_file_path,
+                     "instrumental": paths.instrumental_audio_file_path}.get(settings.bpm_audio,
+                                                                             paths.processing_audio_path)
+        if settings.bpm_detector == "beat_this":
+            from modules.Audio.bpm import get_bpm_with_beat_this
+            process_data.media_info.bpm = get_bpm_with_beat_this(bpm_input, settings.pytorch_device)
+        else:
+            process_data.media_info.bpm = get_bpm_from_file(bpm_input)
+        process_data.media_info.bpm *= settings.bpm_scale
 
     # Detect key
     detected_key, detected_mode = detect_key_from_audio(process_data.process_data_paths.processing_audio_path)

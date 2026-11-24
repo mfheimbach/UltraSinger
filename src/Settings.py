@@ -65,6 +65,12 @@ class Settings:
     qwen3_model = "Qwen/Qwen3-ASR-1.7B"  # or Qwen/Qwen3-ASR-0.6B
     qwen3_aligner = "Qwen/Qwen3-ForcedAligner-0.6B"
 
+    # BPM: librosa (original) | beat_this, and the audio it hears:
+    # processed (the separated, muted vocals: original) | mix | instrumental
+    bpm_detector = "librosa"
+    bpm_audio = "processed"
+    bpm_scale = 1.0  # diagnostics: multiply the detected BPM (sensitivity tests)
+
     # Pitch detector: swiftf0 (original) | rmvpe | fcpe, and the audio it hears:
     # processed (separated+denoised+muted, original) | vocals (separated) | mix (original audio)
     pitch_detector = "swiftf0"

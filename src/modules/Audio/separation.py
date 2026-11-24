@@ -42,7 +42,8 @@ def separate_audio(input_file_path: str, output_folder: str, model: DemucsModel,
     )
 
 def separate_audio_with_audio_separator(input_file_path: str, output_path: str, model_filename: str,
-                                        lead_model_filename: str = None, overlap: int = 2) -> None:
+                                        lead_model_filename: str = None, overlap: int = 2,
+                                        reuse_from: str = None) -> None:
     """Separate with python-audio-separator (RoFormer/MDX/UVR models). Optional second pass:
     a karaoke model on the vocals keeps only the lead vocal. Writes vocals.wav / no_vocals.wav."""
     import shutil
@@ -64,10 +65,20 @@ def separate_audio_with_audio_separator(input_file_path: str, output_path: str, 
         other = next(f for f in files if f != vocals)
         return vocals, other
 
-    vocals, instrumental = run(model_filename, input_file_path)
+    if reuse_from and os.path.exists(os.path.join(reuse_from, "vocals.wav")):
+        # first pass already done (e.g. by a run without the lead-vocal pass)
+        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing first-pass separation from {reuse_from}")
+        vocals = os.path.join(tmp, "first_vocals.wav")
+        instrumental = os.path.join(tmp, "first_no_vocals.wav")
+        shutil.copy(os.path.join(reuse_from, "vocals.wav"), vocals)
+        shutil.copy(os.path.join(reuse_from, "no_vocals.wav"), instrumental)
+    else:
+        vocals, instrumental = run(model_filename, input_file_path)
     if lead_model_filename:
         lead, backing = run(lead_model_filename, vocals)
         vocals = lead
+    import gc
+    gc.collect()  # separator models are large; free them before transcription loads its own
     shutil.move(vocals, os.path.join(output_path, "vocals.wav"))
     shutil.move(instrumental, os.path.join(output_path, "no_vocals.wav"))
     shutil.rmtree(tmp, ignore_errors=True)
@@ -96,8 +107,14 @@ def separate_vocal_from_audio(cache_folder_path: str,
         cache_available = check_file_exists(vocals_path) and check_file_exists(instrumental_path)
         if skip_cache or not cache_available:
             if separator_model:
+                reuse = None
+                if lead_vocal_model:
+                    # a sibling cache (same song, no lead pass) may already hold the first pass
+                    stem = os.path.splitext(separator_model)[0]
+                    sibling = os.path.join(os.path.dirname(os.path.normpath(cache_folder_path)), f"sep_{stem}")
+                    reuse = os.path.join(sibling, "separated", stem, demucs_output_folder)
                 separate_audio_with_audio_separator(audio_output_file_path, audio_separation_path,
-                                                    separator_model, lead_vocal_model)
+                                                    separator_model, lead_vocal_model, reuse_from=reuse)
             else:
                 separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
         else:

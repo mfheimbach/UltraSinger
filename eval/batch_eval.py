@@ -55,6 +55,9 @@ def main() -> None:
     ap.add_argument("--base", nargs="*", default=[], metavar="KEY=VALUE")
     ap.add_argument("--config", action="append", required=True, metavar="LABEL:KEY=VAL,...")
     ap.add_argument("--exclude", nargs="*")
+    ap.add_argument("--jitter", nargs="*", type=float, default=None,
+                    help="BPM scales to average over, e.g. 0.99 1 1.01. UltraSinger's note segmentation "
+                         "is very sensitive to tiny BPM changes; averaging removes that noise from comparisons")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     work = os.path.abspath(args.work)
@@ -62,6 +65,8 @@ def main() -> None:
     import UltraSinger as us
     us.get_bpm_from_file = memoize_by_file(us.get_bpm_from_file)
     us.detect_key_from_audio = memoize_by_file(us.detect_key_from_audio)
+    import modules.Audio.bpm as bpm_mod
+    bpm_mod.get_bpm_with_beat_this = memoize_by_file(bpm_mod.get_bpm_with_beat_this)
 
     songs = discover(args.songs, None, args.exclude)
     configs = []
@@ -77,19 +82,34 @@ def main() -> None:
         json.dump(config, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
         t0 = time.time()
         rows = []
+        scales = args.jitter or [None]
         for song_name, txt in songs:
-            out = os.path.join(run_dir, slug(song_name))
-            shutil.rmtree(out, ignore_errors=True)
-            os.makedirs(out)
-            log = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(log if not args.verbose else sys.stdout):
-                    run_configured(us, usdx.read(txt), txt, "full", out,
-                                   os.path.join(work, "cache", slug(song_name)), overrides)
-                rows.append(score_one("full", song_name, txt, run_dir))
-            except Exception as e:  # keep going
-                rows.append({"song": song_name, "error": repr(e)})
-            open(os.path.join(out, "run.log"), "w", encoding="utf-8").write(log.getvalue())
+            per_scale = []
+            for scale in scales:
+                sub = slug(song_name) if scale is None else os.path.join(f"jitter_{scale}", slug(song_name))
+                out = os.path.join(run_dir, sub)
+                shutil.rmtree(out, ignore_errors=True)
+                os.makedirs(out)
+                log = io.StringIO()
+                ov = overrides + ([f"bpm_scale={scale}"] if scale is not None else [])
+                try:
+                    with contextlib.redirect_stdout(log if not args.verbose else sys.stdout):
+                        run_configured(us, usdx.read(txt), txt, "full", out,
+                                       os.path.join(work, "cache", slug(song_name)), ov)
+                    per_scale.append(score_one("full", song_name, txt, os.path.dirname(out)))
+                except Exception as e:  # keep going
+                    per_scale.append({"song": song_name, "error": repr(e)})
+                open(os.path.join(out, "run.log"), "w", encoding="utf-8").write(log.getvalue())
+            good = [r for r in per_scale if "error" not in r]
+            if not good:
+                rows.append(per_scale[0])
+                continue
+            avg = {"song": song_name, "language": good[0].get("language", "")}
+            for k in good[0]:
+                vals = [r[k] for r in good if isinstance(r.get(k), (int, float))]
+                if vals and k not in avg:
+                    avg[k] = sum(vals) / len(vals)
+            rows.append(avg)
         with contextlib.redirect_stdout(io.StringIO()):
             write_outputs(run_dir, "full", rows, config)
         ok = [r for r in rows if "error" not in r]
