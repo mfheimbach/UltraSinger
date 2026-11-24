@@ -142,6 +142,12 @@ def main() -> None:
     us.check_requirements()
     txt_path, _simple, _accurate = us.run()
 
+    # the eval only needs the txt; drop audio/video copies UltraSinger writes next to it
+    for root, _dirs, files in os.walk(args.out):
+        for name in files:
+            if name.lower().endswith((".ogg", ".m4a", ".mp3", ".wav", ".mp4", ".flac", ".jpg", ".png")):
+                os.remove(os.path.join(root, name))
+
     with open(os.path.join(args.out, "run_info.json"), "w", encoding="utf-8") as f:
         json.dump({"txt": os.path.abspath(txt_path), "mode": args.mode, "overrides": args.set}, f, indent=2)
 
