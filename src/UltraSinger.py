@@ -708,12 +708,32 @@ def realign_with_qwen3(cache_folder_path: str, audio_path: str, result: Transcri
     return TranscriptionResult(realigned.transcribed_data, result.detected_language)
 
 
+def correct_lyrics_with_lrclib(process_data, transcription_result):
+    """Correct transcribed words with lyrics from LRCLIB, keeping the transcribed timing."""
+    from modules.Speech_Recognition import lyrics_lookup as ll
+    total = librosa.get_duration(path=transcription_input_path(process_data))
+    texts = ll.fetch_lyrics(process_data.media_info.artist or "", process_data.media_info.title or "", total)
+    best, best_share = None, 0.0
+    for text in texts:
+        corrected, share = ll.correct_words(transcription_result.transcribed_data, text)
+        if corrected is not None and share > best_share:
+            best, best_share = corrected, share
+    if best is None:
+        print(f"{ULTRASINGER_HEAD} No matching lyrics on LRCLIB, keeping the transcription")
+        return transcription_result
+    print(f"{ULTRASINGER_HEAD} Lyrics corrected with {blue_highlighted('LRCLIB')} "
+          f"({best_share:.0%} of transcribed words matched)")
+    return TranscriptionResult(best, transcription_result.detected_language)
+
+
 def TranscribeAudio(process_data):
     transcription_result = transcribe_audio(process_data.process_data_paths.cache_folder_path,
                                             transcription_input_path(process_data))
     if settings.word_aligner == "qwen3" and not settings.lyrics_file and settings.transcriber == "whisper":
         transcription_result = realign_with_qwen3(process_data.process_data_paths.cache_folder_path,
                                                   transcription_input_path(process_data), transcription_result)
+    if settings.lyrics_source == "lrclib" and not settings.lyrics_file:
+        transcription_result = correct_lyrics_with_lrclib(process_data, transcription_result)
 
     if process_data.media_info.language is None:
         process_data.media_info.language = transcription_result.detected_language

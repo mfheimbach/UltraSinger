@@ -55,6 +55,10 @@ class Settings:
     # behaviour) | vocals (separated, untouched) | mix (original audio, no separation)
     transcription_audio = "processed"
 
+    # Lyrics: transcribe (original) | lrclib (transcribe, then correct the words with lyrics from
+    # lrclib.net, keeping the transcribed timing; unused if the lyrics don't match the audio)
+    lyrics_source = "transcribe"
+
     # Known lyrics: plain-text file to align instead of transcribing (language must be set)
     lyrics_file = None
     lyrics_aligner = "wav2vec2"  # wav2vec2|qwen3
