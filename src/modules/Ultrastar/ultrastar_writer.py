@@ -15,6 +15,11 @@ from modules.Ultrastar.ultrastar_score_calculator import Score
 from modules.Midi.MidiSegment import MidiSegment
 
 
+# Set by UltraSinger: silence | lrclib (lyrics lines + long pauses), and the pause factor
+LINE_BREAK_MODE = "silence"
+SILENCE_FACTOR = 1.0
+
+
 def get_multiplier(real_bpm: float) -> int:
     """Calculates the multiplier for the BPM"""
 
@@ -47,7 +52,7 @@ def create_ultrastar_txt(
     ultrastar_bpm = real_bpm_to_ultrastar_bpm(real_bpm)
     multiplication = get_multiplier(ultrastar_bpm)
     ultrastar_bpm = ultrastar_bpm * get_multiplier(ultrastar_bpm)
-    silence_split_duration = calculate_silent_beat_length(midi_segments)
+    silence_split_duration = calculate_silent_beat_length(midi_segments) * SILENCE_FACTOR
 
     with open(ultrastar_file_output, "w", encoding=FILE_ENCODING) as file:
         gap = midi_segments[0].start
@@ -132,8 +137,10 @@ def create_ultrastar_txt(
                 separated_word_silence.append(silence)
                 continue
 
-            if i != len(midi_segments) - 1 and silence_split_duration != 0 and silence > silence_split_duration or any(
-                    s > silence_split_duration for s in separated_word_silence):
+            silence_break = (i != len(midi_segments) - 1 and silence_split_duration != 0 and silence > silence_split_duration
+                             or any(s > silence_split_duration for s in separated_word_silence))
+            lyrics_break = i + 1 < len(midi_segments) and midi_segments[i + 1].line_start
+            if silence_break or (LINE_BREAK_MODE == "lrclib" and lyrics_break):
                 # - 10
                 # '-' end of current sing part
                 # 'n1' show next at time in real beat

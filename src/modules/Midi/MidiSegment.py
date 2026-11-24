@@ -7,3 +7,4 @@ class MidiSegment:
   start: float
   end: float
   word: str
+  line_start: bool = False  # first note of a lyrics line (from LRCLIB)
