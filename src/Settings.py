@@ -95,6 +95,11 @@ class Settings:
     merge_slides = True
     merge_same_pitch_syllables = True
 
+    # Timing calibration (seconds), applied to the final notes: charts place notes slightly
+    # ahead of the audible onset. Measured best on the eval sets: offset -0.07, end +0.03
+    note_timing_offset = 0.0
+    note_end_extension = 0.0
+
     # Note pitch: how pitch frames inside a note become one note (defaults = original behaviour)
     note_pitch_method = "mode"  # mode|median|chroma_mode
     note_pitch_conf_threshold = 0.4

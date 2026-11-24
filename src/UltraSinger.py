@@ -253,6 +253,11 @@ def run() -> tuple[str, Score, Score]:
                                                                                         process_data.transcribed_data,
                                                                                         process_data.media_info.bpm)
 
+    # Timing calibration
+    if settings.note_timing_offset or settings.note_end_extension:
+        apply_timing_calibration(process_data.midi_segments, settings.note_timing_offset,
+                                 settings.note_end_extension)
+
     # Create plot
     if settings.create_plot:
         create_plots(process_data, settings.output_folder_path)
@@ -470,6 +475,16 @@ def apply_game_pitches(midi_segments, game_pitches, allowed_notes):
         if allowed_notes is not None:
             note = quantize_note_to_key(note, allowed_notes, midi, settings.key_quantize_min_offset)
         seg.note = note
+
+
+def apply_timing_calibration(midi_segments: list[MidiSegment], offset: float, end_extension: float) -> None:
+    """Shift all notes by offset and lengthen them by end_extension, without overlaps."""
+    for i, seg in enumerate(midi_segments):
+        seg.start = max(0.0, seg.start + offset)
+        end = seg.end + offset + end_extension
+        if i + 1 < len(midi_segments):
+            end = min(end, midi_segments[i + 1].start + offset)
+        seg.end = max(end, seg.start + 0.01)
 
 
 def merge_syllable_segments(midi_segments: list[MidiSegment],
