@@ -533,8 +533,14 @@ def realign_with_qwen3(cache_folder_path: str, audio_path: str, result: Transcri
         realigned = align_lyrics_with_qwen3(audio_path, text, language, settings.qwen3_aligner, device)
         with open(cache_path, "w", encoding=FILE_ENCODING) as file:
             file.write(realigned.to_json())
-    if is_degenerate_alignment(realigned.transcribed_data):
-        print(f"{ULTRASINGER_HEAD} {red_highlighted('Qwen3 alignment collapsed')}, keeping wav2vec2 timing")
+    def span(words):
+        return (words[-1].end - words[0].start) if words else 0.0
+
+    old_span, new_span = span(result.transcribed_data), span(realigned.transcribed_data)
+    squeezed = old_span > 0 and new_span < 0.7 * old_span
+    if is_degenerate_alignment(realigned.transcribed_data) or squeezed:
+        reason = "squeezed" if squeezed else "collapsed"
+        print(f"{ULTRASINGER_HEAD} {red_highlighted(f'Qwen3 alignment {reason}')}, keeping wav2vec2 timing")
         return result
     return TranscriptionResult(realigned.transcribed_data, result.detected_language)
 
