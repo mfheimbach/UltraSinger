@@ -1,5 +1,5 @@
 """Mixture-of-experts study for note pitch: can a selector beat GAME alone?
-Needs runs with export_note_candidates=true (prefix moe_usdb_export / moe_dev_export).
+Needs the export_note_candidates patch from branch moe-experiment and runs with export_note_candidates=true (prefix moe_usdb_export / moe_dev_export).
 Leave-one-song-out CV; prints GAME/RMVPE/SwiftF0 alone, 2-of-3 vote, oracle and learned selectors."""
 import sys, json, glob, os, numpy as np
 sys.path.insert(0,'eval')

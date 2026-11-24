@@ -243,9 +243,6 @@ def run() -> tuple[str, Score, Score]:
                                                                                        process_data.parsed_file,
                                                                                        note_pitch_options)
 
-    if settings.export_note_candidates and not settings.ignore_audio:
-        export_note_candidates(process_data, game_pitches)
-
     # GAME's own note pitches (optional)
     if not settings.ignore_audio and settings.note_segmentation == "game" and settings.game_pitch and game_pitches:
         apply_game_pitches(process_data.midi_segments, game_pitches, allowed_notes_for_key)
@@ -464,45 +461,6 @@ def segment_with_game(process_data):
             json.dump(per_index, file)
     notes_by_id = {id(t): [tuple(n) for n in per_index[i]] for i, t in enumerate(syllables)}
     return split_syllables_by_game(syllables, notes_by_id)
-
-
-def export_note_candidates(process_data, game_pitches) -> None:
-    """Debug: per segment, the pitch each expert would give (for mixture-of-experts studies)."""
-    import numpy as np
-    from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
-    from modules.Midi.midi_creator import estimate_tuning_offset
-    paths = process_data.process_data_paths
-    tracks = {}
-    for name in ("rmvpe", "swiftf0"):
-        cache = os.path.join(paths.cache_folder_path, f"{name}_vocals_False_sep{settings.use_separated_vocal}.json")
-        if check_file_exists(cache):
-            with open(cache, encoding=FILE_ENCODING) as file:
-                tracks[name] = PitchedData.from_json(file.read())
-        else:
-            tracks[name] = (get_pitch_with_rmvpe(paths.vocals_audio_file_path) if name == "rmvpe"
-                            else get_pitch_with_file(paths.vocals_audio_file_path))
-            with open(cache, "w", encoding=FILE_ENCODING) as file:
-                file.write(tracks[name].to_json())
-    rows = []
-    for i, seg in enumerate(process_data.transcribed_data):
-        row = {"start": seg.start, "end": seg.end, "word": seg.word,
-               "game": game_pitches[i] if game_pitches and i < len(game_pitches) else None}
-        for name, tr in tracks.items():
-            t = np.asarray(tr.times); f = np.asarray(tr.frequencies); c = np.asarray(tr.confidence)
-            a, b = np.searchsorted(t, [seg.start, seg.end])
-            keep = (c[a:b] > 0.4) & (f[a:b] > 0)
-            tun = estimate_tuning_offset(tr)
-            if keep.sum():
-                m = librosa.hz_to_midi(f[a:b][keep]) - tun
-                row[name] = float(np.median(m))
-                row[name + "_conf"] = float(np.mean(c[a:b][keep]))
-                row[name + "_voiced"] = float(keep.mean())
-                row[name + "_spread"] = float(np.std(m))
-            else:
-                row[name] = None
-        rows.append(row)
-    with open(os.path.join(settings.output_folder_path, "note_candidates.json"), "w", encoding=FILE_ENCODING) as file:
-        json.dump(rows, file)
 
 
 def apply_game_pitches(midi_segments, game_pitches, allowed_notes):
