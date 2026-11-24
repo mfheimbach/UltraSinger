@@ -757,14 +757,22 @@ def realign_with_qwen3(cache_folder_path: str, audio_path: str, result: Transcri
     return TranscriptionResult(realigned.transcribed_data, result.detected_language)
 
 
+def lrclib_candidates(process_data) -> list[dict]:
+    """LRCLIB lyrics for this song (looked up once)."""
+    if getattr(process_data, "lrclib_candidates", None) is None:
+        from modules.Speech_Recognition import lyrics_lookup as ll
+        total = librosa.get_duration(path=transcription_input_path(process_data))
+        process_data.lrclib_candidates = ll.fetch_lyrics(process_data.media_info.artist or "",
+                                                         process_data.media_info.title or "", total)
+    return process_data.lrclib_candidates
+
+
 def correct_lyrics_with_lrclib(process_data, transcription_result):
     """Correct transcribed words with lyrics from LRCLIB, keeping the transcribed timing."""
     from modules.Speech_Recognition import lyrics_lookup as ll
-    total = librosa.get_duration(path=transcription_input_path(process_data))
-    texts = ll.fetch_lyrics(process_data.media_info.artist or "", process_data.media_info.title or "", total)
     best, best_share = None, 0.0
-    for text in texts:
-        corrected, share = ll.correct_words(transcription_result.transcribed_data, text)
+    for candidate in lrclib_candidates(process_data):
+        corrected, share = ll.correct_words(transcription_result.transcribed_data, candidate["plain"])
         if corrected is not None and share > best_share:
             best, best_share = corrected, share
     if best is None:

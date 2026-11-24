@@ -32,8 +32,8 @@ def _clean(text: str) -> str:
     return re.sub(r"\s*[\(\[].*?[\)\]]", "", text or "").strip()
 
 
-def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float = 15.0) -> list[str]:
-    """Candidate lyric texts (closest duration first). Empty list if nothing is found."""
+def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float = 15.0) -> list[dict]:
+    """Candidate lyrics (closest duration first) as {"plain": text, "synced": LRC text or None}."""
     for a, t in ((artist, title), (_clean(artist), _clean(title))):
         if not t:
             continue
@@ -46,11 +46,8 @@ def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: fl
                    and abs((r.get("duration") or 0) - duration) <= max_duration_diff]
         if results:
             results.sort(key=lambda r: abs((r.get("duration") or 0) - duration))
-            texts = []
-            for r in results[:3]:
-                text = r.get("plainLyrics") or TIMESTAMP_RE.sub("", r.get("syncedLyrics") or "")
-                texts.append(text)
-            return texts
+            return [{"plain": r.get("plainLyrics") or TIMESTAMP_RE.sub("", r.get("syncedLyrics") or ""),
+                     "synced": r.get("syncedLyrics")} for r in results[:3]]
     return []
 
 
