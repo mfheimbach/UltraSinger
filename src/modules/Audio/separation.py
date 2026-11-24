@@ -61,7 +61,8 @@ def separate_audio_with_audio_separator(input_file_path: str, output_path: str, 
                                      "batch_size": 1, "overlap": overlap, "pitch_shift": 0})
         sep.load_model(model_filename=model)
         files = [os.path.join(tmp, f) if not os.path.isabs(f) else f for f in sep.separate(src)]
-        vocals = next(f for f in files if "(Vocals)" in f or "(vocals)" in f.lower())
+        # vocal stem: "(Vocals)" for separators, "(noreverb)" for de-reverb models
+        vocals = next(f for f in files if "(vocals)" in f.lower() or "(noreverb)" in f.lower())
         other = next(f for f in files if f != vocals)
         return vocals, other
 
@@ -95,7 +96,7 @@ def separate_vocal_from_audio(cache_folder_path: str,
                               lead_vocal_model: str = None) -> str:
     """Separate vocal from audio"""
     demucs_output_folder = os.path.splitext(os.path.basename(audio_output_file_path))[0]
-    model_folder = model.value
+    model_folder = model.value + (f"+{os.path.splitext(lead_vocal_model)[0]}" if lead_vocal_model else "")
     if separator_model:
         model_folder = os.path.splitext(separator_model)[0] + (
             f"+{os.path.splitext(lead_vocal_model)[0]}" if lead_vocal_model else "")
@@ -115,6 +116,18 @@ def separate_vocal_from_audio(cache_folder_path: str,
                     reuse = os.path.join(sibling, "separated", stem, demucs_output_folder)
                 separate_audio_with_audio_separator(audio_output_file_path, audio_separation_path,
                                                     separator_model, lead_vocal_model, reuse_from=reuse)
+            elif lead_vocal_model:
+                # second pass (lead vocal / de-reverb) on top of demucs; reuse a sibling demucs cache
+                name = os.path.join("separated", model.value, demucs_output_folder)
+                base = os.path.dirname(os.path.normpath(cache_folder_path))
+                reuse = next((os.path.join(c, name) for c in (os.path.join(base, f"demucs_{model.value}"), base,
+                                                               cache_folder_path)
+                              if check_file_exists(os.path.join(c, name, "vocals.wav"))), None)
+                if reuse is None:
+                    separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
+                    reuse = os.path.join(cache_folder_path, name)
+                separate_audio_with_audio_separator(audio_output_file_path, audio_separation_path,
+                                                    None, lead_vocal_model, reuse_from=reuse)
             else:
                 separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
         else:

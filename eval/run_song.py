@@ -127,8 +127,9 @@ def run_configured(us, gt: "usdx.Song", gt_path: str, mode: str, out: str, cache
     if s.separator_model:
         tag = os.path.splitext(s.separator_model)[0] + (f"+{os.path.splitext(s.lead_vocal_model)[0]}" if s.lead_vocal_model else "")
         s.cache_override_path = os.path.join(s.cache_override_path, f"sep_{tag}")
-    elif s.demucs_model.value != "htdemucs":
-        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{s.demucs_model.value}")
+    elif s.demucs_model.value != "htdemucs" or s.lead_vocal_model:
+        tag = s.demucs_model.value + (f"+{os.path.splitext(s.lead_vocal_model)[0]}" if s.lead_vocal_model else "")
+        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{tag}")
     os.makedirs(s.output_folder_path, exist_ok=True)
     os.makedirs(s.cache_override_path, exist_ok=True)
     share_separation_cache(s.cache_override_path, gt)
