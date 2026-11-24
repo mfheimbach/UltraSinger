@@ -19,3 +19,4 @@ output
 # evaluation data and outputs
 eval_data/
 eval_work/
+eval_work_*/
