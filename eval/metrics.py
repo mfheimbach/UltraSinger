@@ -164,6 +164,20 @@ def note_metrics(gt: Song, pred: Song) -> dict:
     return out
 
 
+def line_metrics(gt: Song, pred: Song, tol: float = 0.5) -> dict:
+    """Line breaks: start times of lines (first note after a '-'), matched within tol seconds."""
+    import mir_eval
+
+    def starts(s: Song):
+        return np.array([n.start for n in s.notes[1:] if n.line_start])
+
+    g, p = starts(gt), starts(pred)
+    out = {"lines_gt": len(g) + 1, "lines_pred": len(p) + 1, "line_count_ratio": _safe(len(p) + 1, len(g) + 1)}
+    if len(g) and len(p):
+        out["line_f1"] = mir_eval.onset.f_measure(g, p, window=tol)[0]
+    return out
+
+
 def _norm_words(words: list[str]) -> str:
     out = []
     for w in words:
@@ -198,6 +212,7 @@ def evaluate(gt: Song, pred: Song) -> dict:
     res.update(frame_metrics(gt, pred))
     res["best_offset_ms"] = best_offset(gt, pred) * 1000
     res.update(note_metrics(gt, pred))
+    res.update(line_metrics(gt, pred))
     res.update(lyric_metrics(gt, pred))
     return res
 
