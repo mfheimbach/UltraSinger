@@ -33,6 +33,7 @@ class NotePitchOptions:
     tuning_correction: bool = False  # compensate recordings not tuned to A440
     fmin: float = 0.0
     fmax: float = 1e9
+    key_min_offset: float = 0.0     # limited key quantization (see quantize_note_to_key)
 
 
 def estimate_tuning_offset(pitched_data: PitchedData, conf_threshold: float = 0.4) -> float:
@@ -210,7 +211,8 @@ def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitch
         note, pitch_hint = note_from_frames(freqs, confs, options, tuning_offset)
 
     if allowed_notes is not None:
-        note = quantize_note_to_key(note, allowed_notes, pitch_hint)
+        note = quantize_note_to_key(note, allowed_notes, pitch_hint,
+                                    options.key_min_offset if options is not None else 0.0)
 
     return MidiSegment(note, start_time, end_time, word)
 

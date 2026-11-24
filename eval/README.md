@@ -56,6 +56,8 @@ Frame level, 10 ms grid (robust to different note splits):
   octave ignored, golden notes count double). The single headline number.
 - `usdx_hard`: the same with exact pitch class required (USDX hard). Key
   quantization trades one against the other, so watch both.
+- `pitch_mae`: mean octave-folded pitch distance in semitones (0–6) on frames where
+  both chart and output have a note. Continuous, so it separates "1 off" from "5 off".
 - `chroma_acc` / `chroma_acc_pm1`: pitch correct (±0 / ±1 semitone, octave
   ignored) over ground-truth pitched frames; unvoiced predictions count as wrong.
 - `chroma_acc_cond`: same, only where something was predicted. Separates

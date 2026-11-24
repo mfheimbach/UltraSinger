@@ -83,7 +83,8 @@ def get_allowed_notes_for_key(key_note: str, mode: str) -> set[str]:
     return allowed_notes
 
 
-def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float = None) -> str:
+def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float = None,
+                         min_offset: float = 0.0) -> str:
     """
     Quantize a note to the nearest allowed note in the key.
 
@@ -92,6 +93,9 @@ def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float =
         allowed_notes: Set of allowed note names without octave
         pitch_hint: Optional unrounded MIDI pitch of the note. Breaks ties between
             two equally distant allowed notes; without it the lower one wins.
+        min_offset: Limited quantization. With a pitch_hint, an out-of-key note is
+            only moved if the measured pitch is at least this many semitones away
+            from the note's centre (i.e. ambiguous). 0 = always quantize.
 
     Returns:
         Quantized note name
@@ -116,6 +120,11 @@ def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float =
     try:
         note_midi = librosa.note_to_midi(note)
     except:
+        return note
+
+    # Limited quantization: a note measured close to its own centre is a deliberate
+    # chromatic note, leave it alone
+    if pitch_hint is not None and min_offset > 0 and abs(pitch_hint - round(pitch_hint)) < min_offset:
         return note
 
     # Try all allowed notes in nearby octaves

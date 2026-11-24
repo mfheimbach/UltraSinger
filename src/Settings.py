@@ -66,6 +66,7 @@ class Settings:
     note_pitch_conf_threshold = 0.4
     note_pitch_edge_trim = 0.0  # fraction of frames ignored at each end of a note
     note_pitch_tuning_correction = False  # compensate recordings not tuned to A440
+    key_quantize_min_offset = 0.0  # limited key quantization: only snap out-of-key notes measured >= this far (semitones) off-centre
 
     # Device
     pytorch_device = 'cpu'  # cpu|cuda

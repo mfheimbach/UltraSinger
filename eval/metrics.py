@@ -89,6 +89,8 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
         # same, but only where something was predicted: isolates pitch from voicing errors
         "chroma_acc_cond": _safe((have & (dist == 0)).sum(), have.sum()),
         "usdx_medium": _safe(usdx_hits.sum(), usdx_total.sum()),
+        # continuous: mean octave-folded distance in semitones (0..6) where both have a note
+        "pitch_mae": float(dist[have].mean()) if have.any() else float("nan"),
         # USDX hard: exact pitch class required
         "usdx_hard": _safe(((gp & (dist == 0)) * weight).sum(), usdx_total.sum()),
     }
@@ -217,5 +219,6 @@ def evaluate_repitch(gt: Song, pred: Song) -> dict:
         "note_chroma_acc_pm1": float((d <= 1).mean()),
         "note_chroma_acc_dur": float((w * (d == 0)).sum() / w.sum()),
         "note_exact": float((g[m] == p[m]).mean()),
+        "note_pitch_mae": float(d.mean()),
         "octave_errors": float(((d == 0) & (g[m] != p[m])).mean()),
     }

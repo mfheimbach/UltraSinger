@@ -203,6 +203,7 @@ def run() -> tuple[str, Score, Score]:
         conf_threshold=settings.note_pitch_conf_threshold,
         edge_trim=settings.note_pitch_edge_trim,
         tuning_correction=settings.note_pitch_tuning_correction,
+        key_min_offset=settings.key_quantize_min_offset,
     )
 
     # Allowed keys for quantization
