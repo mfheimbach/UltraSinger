@@ -58,16 +58,11 @@ def _norm(word: str) -> str:
 
 def correct_words(transcribed, lyrics_text: str, min_match: float = 0.4):
     """Replace mis-heard words with the reference lyrics, keeping the transcribed timing.
-    Returns (corrected list, match share, line start times) or (None, share, []) if the lyrics don't fit.
-    Line start times are the (transcribed) start times of words that begin a lyrics line."""
-    ref, ref_line_start = [], []
-    for line in lyrics_text.splitlines():
-        words = [w for w in line.split() if _norm(w)]
-        ref += words
-        ref_line_start += [k == 0 for k in range(len(words))]
+    Returns (corrected list, match share) or (None, share) if the lyrics don't fit."""
+    ref = [w for w in re.split(r"\s+", lyrics_text) if _norm(w)]
     hyp = [t for t in transcribed if _norm(str(t.word))]
     if not ref or not hyp:
-        return None, 0.0, []
+        return None, 0.0
     a = [_norm(str(t.word)) for t in hyp]
     b = [_norm(w) for w in ref]
     sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
@@ -75,16 +70,14 @@ def correct_words(transcribed, lyrics_text: str, min_match: float = 0.4):
     matched = sum(i2 - i1 for tag, i1, i2, j1, j2 in blocks if tag == "equal")
     share = matched / len(hyp)
     if share < min_match:
-        return None, share, []
-    out, line_starts = [], []
+        return None, share
+    out = []
     for tag, i1, i2, j1, j2 in blocks:
         if tag == "equal":
             for k in range(i2 - i1):
                 t = copy.deepcopy(hyp[i1 + k])
                 t.word = ref[j1 + k] + " "
                 out.append(t)
-                if ref_line_start[j1 + k]:
-                    line_starts.append(t.start)
         elif tag == "replace" and (j2 - j1 > 2 * (i2 - i1) + 1 or i2 - i1 > 2 * (j2 - j1) + 1):
             # very different lengths: usually backing vocals/repeats this version doesn't have
             out.extend(copy.deepcopy(hyp[i1:i2]))
@@ -102,9 +95,7 @@ def correct_words(transcribed, lyrics_text: str, min_match: float = 0.4):
                 t.word = w + " "
                 cursor = t.end
                 out.append(t)
-            if any(ref_line_start[j1:j2]):
-                line_starts.append(out[-len(words) + ref_line_start[j1:j2].index(True)].start)
         elif tag == "delete":
             out.extend(copy.deepcopy(hyp[i1:i2]))  # sung but not in the lyrics (ad-libs): keep
         # "insert": in the lyrics but not heard (e.g. a repeat this version skips): drop
-    return out, share, line_starts
+    return out, share

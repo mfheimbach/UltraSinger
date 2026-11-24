@@ -58,9 +58,10 @@ class Settings:
     # Lyrics: transcribe (original) | lrclib (transcribe, then correct the words with lyrics from
     # lrclib.net, keeping the transcribed timing; unused if the lyrics don't match the audio)
     lyrics_source = "transcribe"
-    # Line breaks: silence (original: pauses longer than average) | lrclib (LRCLIB lyrics lines + silence)
+    # Line breaks: silence (original: pauses longer than average)
+    #   | planned (pauses + punctuation model + line length prior learned from charts)
     line_breaks = "silence"
-    line_break_silence_factor = 2.0  # lrclib: additional breaks at pauses > factor * average pause
+    line_break_model = "oliverguhr/fullstop-punctuation-multilingual-base"
 
     # Known lyrics: plain-text file to align instead of transcribing (language must be set)
     lyrics_file = None

@@ -61,7 +61,6 @@ from modules.Speech_Recognition.TranscribedData import TranscribedData
 from modules.Speech_Recognition.Whisper import WhisperModel
 from modules.Ultrastar.ultrastar_score_calculator import Score, calculate_score_points
 from modules.Ultrastar.ultrastar_txt import FILE_ENCODING, FormatVersion
-from modules.Ultrastar import ultrastar_writer
 from modules.Ultrastar.coverter.ultrastar_txt_converter import from_ultrastar_txt, \
     create_ultrastar_txt_from_midi_segments, create_ultrastar_txt_from_automation
 from modules.Ultrastar.ultrastar_parser import parse_ultrastar_txt
@@ -255,14 +254,6 @@ def run() -> tuple[str, Score, Score]:
                                                                                         process_data.transcribed_data,
                                                                                         process_data.media_info.bpm)
 
-    # Line breaks from the lyrics lines (before edges/timing move note starts)
-    use_lyrics_lines = (not settings.ignore_audio and settings.line_breaks == "lrclib"
-                        and bool(getattr(process_data, "lyrics_line_starts", None)))
-    if use_lyrics_lines:
-        mark_line_starts(process_data.midi_segments, process_data.lyrics_line_starts)
-    ultrastar_writer.LINE_BREAK_MODE = "lrclib" if use_lyrics_lines else "silence"
-    ultrastar_writer.SILENCE_FACTOR = settings.line_break_silence_factor if use_lyrics_lines else 1.0
-
     # Note edges at pauses follow the voicing
     if not settings.ignore_audio and settings.note_edge_snap > 0:
         snap_note_edges(process_data.midi_segments, process_data.pitched_data,
@@ -272,6 +263,12 @@ def run() -> tuple[str, Score, Score]:
     if settings.note_timing_offset or settings.note_end_extension:
         apply_timing_calibration(process_data.midi_segments, settings.note_timing_offset,
                                  settings.note_end_extension)
+
+    # Line breaks planned from pauses and a punctuation model (after all timing changes)
+    if not settings.ignore_audio and settings.line_breaks == "planned":
+        from modules.Ultrastar.line_breaks import plan_line_breaks
+        plan_line_breaks(process_data.midi_segments, settings.line_break_model,
+                         "cpu" if settings.force_whisper_cpu else settings.pytorch_device)
 
     # Create plot
     if settings.create_plot:
@@ -490,17 +487,6 @@ def apply_game_pitches(midi_segments, game_pitches, allowed_notes):
         if allowed_notes is not None:
             note = quantize_note_to_key(note, allowed_notes, midi, settings.key_quantize_min_offset)
         seg.note = note
-
-
-def mark_line_starts(midi_segments: list[MidiSegment], line_starts: list[float], max_dist: float = 0.25) -> None:
-    """Flag the note starting closest to each lyrics line start."""
-    starts = np.array([seg.start for seg in midi_segments])
-    if not len(starts):
-        return
-    for t in line_starts:
-        k = int(np.argmin(np.abs(starts - t)))
-        if abs(starts[k] - t) <= max_dist:
-            midi_segments[k].line_start = True
 
 
 def snap_note_edges(midi_segments: list[MidiSegment], pitched_data: PitchedData, max_shift: float,
@@ -790,17 +776,16 @@ def lrclib_candidates(process_data) -> list[dict]:
 def correct_lyrics_with_lrclib(process_data, transcription_result):
     """Correct transcribed words with lyrics from LRCLIB, keeping the transcribed timing."""
     from modules.Speech_Recognition import lyrics_lookup as ll
-    best, best_share, line_starts = None, 0.0, []
+    best, best_share = None, 0.0
     for candidate in lrclib_candidates(process_data):
-        corrected, share, starts = ll.correct_words(transcription_result.transcribed_data, candidate["plain"])
+        corrected, share = ll.correct_words(transcription_result.transcribed_data, candidate["plain"])
         if corrected is not None and share > best_share:
-            best, best_share, line_starts = corrected, share, starts
+            best, best_share = corrected, share
     if best is None:
         print(f"{ULTRASINGER_HEAD} No matching lyrics on LRCLIB, keeping the transcription")
         return transcription_result
     print(f"{ULTRASINGER_HEAD} Lyrics corrected with {blue_highlighted('LRCLIB')} "
           f"({best_share:.0%} of transcribed words matched)")
-    process_data.lyrics_line_starts = line_starts
     return TranscriptionResult(best, transcription_result.detected_language)
 
 
