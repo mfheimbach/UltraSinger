@@ -88,8 +88,7 @@ class Settings:
     game_pitch = False  # True: use GAME's note pitches instead of the pitch-track estimate
     game_boundary_threshold = 0.2
     game_steps = 8
-    game_chunk_seconds = 30.0
-    export_note_candidates = False  # debug: write per-note pitch candidates (GAME/RMVPE/SwiftF0) as JSON  # split long audio at syllable gaps into ~this long chunks (0 = whole song)
+    game_chunk_seconds = 30.0  # split long audio at syllable gaps into ~this long chunks (0 = whole song)
 
     # Post-segmentation merging (designed for the grid split): merge short 1-2 semitone
     # "slides" into the previous note, and join consecutive syllables with the same pitch
