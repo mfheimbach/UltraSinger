@@ -96,15 +96,15 @@ def create_ultrastar_txt(
         separated_word_silence = []  # This is a workaround for separated words that get his ends to far away
 
         for i, midi_segment in enumerate(midi_segments):
-            start_time = (midi_segment.start - gap) * multiplication
-            end_time = (
-                               midi_segment.end - midi_segment.start
-                       ) * multiplication
-            start_beat = round(second_to_beat(start_time, real_bpm))
-            duration = round(second_to_beat(end_time, real_bpm))
+            # Round start and end from absolute times. Rounding the duration separately and
+            # pushing the next note behind it let rounding errors accumulate: with many
+            # touching notes the chart drifted seconds late by the end of a song.
+            start_beat = round(second_to_beat((midi_segment.start - gap) * multiplication, real_bpm))
+            end_beat = round(second_to_beat((midi_segment.end - gap) * multiplication, real_bpm))
 
-            # Fix the round issue, so the beats don’t overlap
+            # Don't overlap the previous note; keep at least one beat
             start_beat = max(start_beat, previous_end_beat)
+            duration = max(1, end_beat - start_beat)
             previous_end_beat = start_beat + duration
 
             # Calculate the silence between the words
