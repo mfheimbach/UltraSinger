@@ -7,6 +7,7 @@ import os
 import sys
 import Levenshtein
 import librosa
+import numpy as np
 
 from packaging import version
 
@@ -253,6 +254,11 @@ def run() -> tuple[str, Score, Score]:
                                                                                         process_data.transcribed_data,
                                                                                         process_data.media_info.bpm)
 
+    # Note edges at pauses follow the voicing
+    if not settings.ignore_audio and settings.note_edge_snap > 0:
+        snap_note_edges(process_data.midi_segments, process_data.pitched_data,
+                        settings.note_edge_snap, settings.note_edge_conf)
+
     # Timing calibration
     if settings.note_timing_offset or settings.note_end_extension:
         apply_timing_calibration(process_data.midi_segments, settings.note_timing_offset,
@@ -475,6 +481,49 @@ def apply_game_pitches(midi_segments, game_pitches, allowed_notes):
         if allowed_notes is not None:
             note = quantize_note_to_key(note, allowed_notes, midi, settings.key_quantize_min_offset)
         seg.note = note
+
+
+def snap_note_edges(midi_segments: list[MidiSegment], pitched_data: PitchedData, max_shift: float,
+                    conf_threshold: float, min_gap: float = 0.03, min_len: float = 0.05) -> None:
+    """Move note starts/ends that border a pause onto the voicing on/offset (within max_shift).
+    Edges between touching notes are pitch changes and stay where they are."""
+    times = np.asarray(pitched_data.times)
+    voiced = (np.asarray(pitched_data.confidence) >= conf_threshold) & (np.asarray(pitched_data.frequencies) > 0)
+    if len(times) < 2:
+        return
+    hop = float(np.median(np.diff(times)))
+
+    def is_voiced(t):
+        i = int(np.searchsorted(times, t))
+        return 0 <= i < len(voiced) and voiced[i]
+
+    for k, seg in enumerate(midi_segments):
+        prev_end = midi_segments[k - 1].end if k > 0 else 0.0
+        next_start = midi_segments[k + 1].start if k + 1 < len(midi_segments) else float("inf")
+        if seg.start - prev_end > min_gap:
+            t = seg.start
+            if is_voiced(t):  # singing already started: move the start back to the onset
+                while t - hop > max(prev_end + min_gap, seg.start - max_shift) and is_voiced(t - hop):
+                    t -= hop
+            else:  # nothing sung yet: move the start forward to the onset
+                limit = min(seg.start + max_shift, seg.end - min_len)
+                while t + hop < limit and not is_voiced(t):
+                    t += hop
+                if not is_voiced(t):
+                    t = seg.start
+            seg.start = t
+        if next_start - seg.end > min_gap:
+            t = seg.end
+            if is_voiced(t):
+                while t + hop < min(next_start - min_gap, seg.end + max_shift) and is_voiced(t + hop):
+                    t += hop
+            else:
+                limit = max(seg.end - max_shift, seg.start + min_len)
+                while t - hop > limit and not is_voiced(t):
+                    t -= hop
+                if not is_voiced(t):
+                    t = seg.end
+            seg.end = t
 
 
 def apply_timing_calibration(midi_segments: list[MidiSegment], offset: float, end_extension: float) -> None:

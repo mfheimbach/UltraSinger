@@ -101,6 +101,9 @@ class Settings:
 
     # Timing calibration (seconds), applied to the final notes: charts place notes slightly
     # ahead of the audible onset. Measured best on the eval sets: offset -0.07, end +0.03
+    # Move note edges next to a pause onto the voicing on/offset of the pitch track (max shift in s, 0 = off)
+    note_edge_snap = 0.0
+    note_edge_conf = 0.1
     note_timing_offset = 0.0
     note_end_extension = 0.0
 
