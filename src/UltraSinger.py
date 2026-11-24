@@ -631,7 +631,9 @@ def CreateProcessAudio(process_data) -> str:
         settings.create_karaoke,
         settings.pytorch_device,
         settings.demucs_model,
-        settings.skip_cache_vocal_separation
+        settings.skip_cache_vocal_separation,
+        settings.separator_model,
+        settings.lead_vocal_model,
     )
     process_data.process_data_paths.vocals_audio_file_path = os.path.join(audio_separation_folder_path, "vocals.wav")
     process_data.process_data_paths.instrumental_audio_file_path = os.path.join(audio_separation_folder_path,
@@ -830,13 +832,24 @@ def pitch_audio(
     """Pitch audio"""
 
     pitching_config = f"swiftf0_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
+    if settings.pitch_detector != "swiftf0" or settings.pitch_audio != "processed":
+        pitching_config = f"{settings.pitch_detector}_{settings.pitch_audio}_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
     pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
     cache_available = check_file_exists(pitched_data_path)
 
     if settings.skip_cache_pitch_detection or not cache_available:
-        pitched_data = get_pitch_with_file(
-            process_data_paths.processing_audio_path
-        )
+        audio_path = {
+            "mix": process_data_paths.audio_output_file_path,
+            "vocals": process_data_paths.vocals_audio_file_path,
+        }.get(settings.pitch_audio, process_data_paths.processing_audio_path)
+        if settings.pitch_detector == "rmvpe":
+            from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
+            pitched_data = get_pitch_with_rmvpe(audio_path, settings.pytorch_device)
+        elif settings.pitch_detector == "fcpe":
+            from modules.Pitcher.alt_pitchers import get_pitch_with_fcpe
+            pitched_data = get_pitch_with_fcpe(audio_path, settings.pytorch_device)
+        else:
+            pitched_data = get_pitch_with_file(audio_path)
 
         pitched_data_json = pitched_data.to_json()
         with open(pitched_data_path, "w", encoding=FILE_ENCODING) as file:

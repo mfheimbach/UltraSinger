@@ -41,23 +41,65 @@ def separate_audio(input_file_path: str, output_folder: str, model: DemucsModel,
         ]
     )
 
+def separate_audio_with_audio_separator(input_file_path: str, output_path: str, model_filename: str,
+                                        lead_model_filename: str = None, overlap: int = 2) -> None:
+    """Separate with python-audio-separator (RoFormer/MDX/UVR models). Optional second pass:
+    a karaoke model on the vocals keeps only the lead vocal. Writes vocals.wav / no_vocals.wav."""
+    import shutil
+    import tempfile
+    from audio_separator.separator import Separator
+
+    model_dir = os.path.join(os.path.expanduser("~"), ".cache", "audio-separator")
+    os.makedirs(output_path, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="sep_")
+
+    def run(model: str, src: str) -> tuple[str, str]:
+        print(f"{ULTRASINGER_HEAD} Separating with {blue_highlighted('audio-separator')} model {blue_highlighted(model)}")
+        sep = Separator(output_dir=tmp, model_file_dir=model_dir, output_format="WAV",
+                        mdxc_params={"segment_size": 256, "override_model_segment_size": False,
+                                     "batch_size": 1, "overlap": overlap, "pitch_shift": 0})
+        sep.load_model(model_filename=model)
+        files = [os.path.join(tmp, f) if not os.path.isabs(f) else f for f in sep.separate(src)]
+        vocals = next(f for f in files if "(Vocals)" in f or "(vocals)" in f.lower())
+        other = next(f for f in files if f != vocals)
+        return vocals, other
+
+    vocals, instrumental = run(model_filename, input_file_path)
+    if lead_model_filename:
+        lead, backing = run(lead_model_filename, vocals)
+        vocals = lead
+    shutil.move(vocals, os.path.join(output_path, "vocals.wav"))
+    shutil.move(instrumental, os.path.join(output_path, "no_vocals.wav"))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def separate_vocal_from_audio(cache_folder_path: str,
                               audio_output_file_path: str,
                               use_separated_vocal: bool,
                               create_karaoke: bool,
                               pytorch_device: str,
                               model: DemucsModel,
-                              skip_cache: bool = False) -> str:
+                              skip_cache: bool = False,
+                              separator_model: str = None,
+                              lead_vocal_model: str = None) -> str:
     """Separate vocal from audio"""
     demucs_output_folder = os.path.splitext(os.path.basename(audio_output_file_path))[0]
-    audio_separation_path = os.path.join(cache_folder_path, "separated", model.value, demucs_output_folder)
+    model_folder = model.value
+    if separator_model:
+        model_folder = os.path.splitext(separator_model)[0] + (
+            f"+{os.path.splitext(lead_vocal_model)[0]}" if lead_vocal_model else "")
+    audio_separation_path = os.path.join(cache_folder_path, "separated", model_folder, demucs_output_folder)
 
     vocals_path = os.path.join(audio_separation_path, "vocals.wav")
     instrumental_path = os.path.join(audio_separation_path, "no_vocals.wav")
     if use_separated_vocal or create_karaoke:
         cache_available = check_file_exists(vocals_path) and check_file_exists(instrumental_path)
         if skip_cache or not cache_available:
-            separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
+            if separator_model:
+                separate_audio_with_audio_separator(audio_output_file_path, audio_separation_path,
+                                                    separator_model, lead_vocal_model)
+            else:
+                separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
         else:
             print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached separated vocals")
 

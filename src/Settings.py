@@ -36,7 +36,11 @@ class Settings:
     format_version = FormatVersion.V1_2_0
 
     # Demucs
-    demucs_model = DemucsModel.HTDEMUCS  # htdemucs|htdemucs_ft|htdemucs_6s|hdemucs_mmi|mdx|mdx_extra|mdx_q|mdx_extra_q|SIG
+    demucs_model = DemucsModel.HTDEMUCS
+    # Optional: separate with python-audio-separator instead of demucs (e.g. a RoFormer
+    # model filename), and optionally keep only the lead vocal with a karaoke model
+    separator_model = None  # e.g. model_bs_roformer_ep_317_sdr_12.9755.ckpt
+    lead_vocal_model = None  # e.g. mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt  # htdemucs|htdemucs_ft|htdemucs_6s|hdemucs_mmi|mdx|mdx_extra|mdx_q|mdx_extra_q|SIG
 
     # Whisper
     transcriber = "whisper"  # whisper|qwen3
@@ -60,6 +64,11 @@ class Settings:
     # Qwen3-ASR (transcriber = "qwen3", needs `pip install qwen-asr`)
     qwen3_model = "Qwen/Qwen3-ASR-1.7B"  # or Qwen/Qwen3-ASR-0.6B
     qwen3_aligner = "Qwen/Qwen3-ForcedAligner-0.6B"
+
+    # Pitch detector: swiftf0 (original) | rmvpe | fcpe, and the audio it hears:
+    # processed (separated+denoised+muted, original) | vocals (separated) | mix (original audio)
+    pitch_detector = "swiftf0"
+    pitch_audio = "processed"
 
     # Note pitch: how pitch frames inside a note become one note (defaults = original behaviour)
     note_pitch_method = "mode"  # mode|median|chroma_mode

@@ -82,6 +82,71 @@ def share_separation_cache(cache: str, gt: usdx.Song) -> None:
             os.symlink(existing[0], os.path.join(mdir, n))
 
 
+def run_configured(us, gt: "usdx.Song", gt_path: str, mode: str, out: str, cache: str,
+                   overrides: list[str], oracle_lyrics: bool = False) -> str:
+    """Configure UltraSinger's module-level settings for one song and run it.
+    Resets settings first, so it can be called repeatedly in one process."""
+    from modules.musicbrainz_client import SongInfo
+    from modules.Ultrastar.ultrastar_txt import FormatVersion
+
+    # Offline + no side quests: no MusicBrainz lookups, no sheet music, no support banner
+    us.search_musicbrainz = lambda title, artist: SongInfo(title=gt.title, artist=gt.artist)
+    us.create_sheet = lambda *a, **k: None
+    us.print_support = lambda *a, **k: None
+
+    s = us.settings
+    s.__dict__.clear()  # back to the class defaults
+    s.output_folder_path = os.path.abspath(out)
+    s.cache_override_path = os.path.abspath(cache)
+    s.keep_cache = True
+    s.create_midi = False
+    s.create_plot = False
+    s.calculate_score = False
+    s.interactive_mode = False
+
+    if mode == "full":
+        # language detection is part of what we evaluate; pin it with --set language=xx
+        s.input_file_path = os.path.abspath(gt.audio_path())
+    else:
+        s.input_file_path = os.path.abspath(gt_path)
+        # re-pitch never needs instrumental/vocal stems written next to the output
+        s.format_version = FormatVersion.V1_0_0
+        s.create_karaoke = False
+
+    if oracle_lyrics:
+        lyrics_path = os.path.join(os.path.abspath(cache), "oracle_lyrics.txt")
+        os.makedirs(os.path.dirname(lyrics_path), exist_ok=True)
+        with open(lyrics_path, "w", encoding="utf-8") as f:
+            f.write(" ".join(gt.words()))
+        s.lyrics_file = lyrics_path
+        s.language = language_code(gt.language)
+
+    apply_overrides(s, overrides)
+    # Intermediate audio (denoised/mono/muted) and the transcription cache are not keyed
+    # by separation model, so non-default models get their own cache folder.
+    if s.separator_model:
+        tag = os.path.splitext(s.separator_model)[0] + (f"+{os.path.splitext(s.lead_vocal_model)[0]}" if s.lead_vocal_model else "")
+        s.cache_override_path = os.path.join(s.cache_override_path, f"sep_{tag}")
+    elif s.demucs_model.value != "htdemucs":
+        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{s.demucs_model.value}")
+    os.makedirs(s.output_folder_path, exist_ok=True)
+    os.makedirs(s.cache_override_path, exist_ok=True)
+    share_separation_cache(s.cache_override_path, gt)
+
+    us.check_requirements()
+    txt_path, _simple, _accurate = us.run()
+
+    # the eval only needs the txt; drop audio/video copies UltraSinger writes next to it
+    for root, _dirs, files in os.walk(out):
+        for name in files:
+            if name.lower().endswith((".ogg", ".m4a", ".mp3", ".wav", ".mp4", ".flac", ".jpg", ".png")):
+                os.remove(os.path.join(root, name))
+
+    with open(os.path.join(out, "run_info.json"), "w", encoding="utf-8") as f:
+        json.dump({"txt": os.path.abspath(txt_path), "mode": mode, "overrides": overrides}, f, indent=2)
+    return txt_path
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["full", "repitch"], default="full")
@@ -93,63 +158,8 @@ def main() -> None:
                     help="align the chart's own lyrics (no timing) instead of transcribing: upper bound for lyrics lookup")
     args = ap.parse_args()
 
-    gt = usdx.read(args.gt)
-
     import UltraSinger as us
-    from modules.musicbrainz_client import SongInfo
-    from modules.Ultrastar.ultrastar_txt import FormatVersion
-
-    # Offline + no side quests: no MusicBrainz lookups, no sheet music, no support banner
-    us.search_musicbrainz = lambda title, artist: SongInfo(title=gt.title, artist=gt.artist)
-    us.create_sheet = lambda *a, **k: None
-    us.print_support = lambda *a, **k: None
-
-    s = us.settings
-    s.output_folder_path = os.path.abspath(args.out)
-    s.cache_override_path = os.path.abspath(args.cache)
-    s.keep_cache = True
-    s.create_midi = False
-    s.create_plot = False
-    s.calculate_score = False
-    s.interactive_mode = False
-
-    if args.mode == "full":
-        # language detection is part of what we evaluate; pin it with --set language=xx
-        s.input_file_path = os.path.abspath(gt.audio_path())
-    else:
-        s.input_file_path = os.path.abspath(args.gt)
-        # re-pitch never needs instrumental/vocal stems written next to the output
-        s.format_version = FormatVersion.V1_0_0
-        s.create_karaoke = False
-
-    if args.oracle_lyrics:
-        lyrics_path = os.path.join(os.path.abspath(args.cache), "oracle_lyrics.txt")
-        os.makedirs(os.path.dirname(lyrics_path), exist_ok=True)
-        with open(lyrics_path, "w", encoding="utf-8") as f:
-            f.write(" ".join(gt.words()))
-        s.lyrics_file = lyrics_path
-        s.language = language_code(gt.language)
-
-    apply_overrides(s, args.set)
-    # Intermediate audio (denoised/mono/muted) and the transcription cache are not keyed
-    # by separation model, so non-default models get their own cache folder.
-    if s.demucs_model.value != "htdemucs":
-        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{s.demucs_model.value}")
-    os.makedirs(s.output_folder_path, exist_ok=True)
-    os.makedirs(s.cache_override_path, exist_ok=True)
-    share_separation_cache(s.cache_override_path, gt)
-
-    us.check_requirements()
-    txt_path, _simple, _accurate = us.run()
-
-    # the eval only needs the txt; drop audio/video copies UltraSinger writes next to it
-    for root, _dirs, files in os.walk(args.out):
-        for name in files:
-            if name.lower().endswith((".ogg", ".m4a", ".mp3", ".wav", ".mp4", ".flac", ".jpg", ".png")):
-                os.remove(os.path.join(root, name))
-
-    with open(os.path.join(args.out, "run_info.json"), "w", encoding="utf-8") as f:
-        json.dump({"txt": os.path.abspath(txt_path), "mode": args.mode, "overrides": args.set}, f, indent=2)
+    run_configured(us, usdx.read(args.gt), args.gt, args.mode, args.out, args.cache, args.set, args.oracle_lyrics)
 
 
 if __name__ == "__main__":
