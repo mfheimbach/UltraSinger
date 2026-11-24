@@ -36,6 +36,9 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
         new_transcribed_data.append(data)
 
         origin_end = data.end
+        # the last piece of a split syllable ends the word only if the syllable did
+        origin_word_end = str(data.word).endswith(" ")
+        end_piece = "~ " if origin_word_end else "~"
         was_split = False
 
         for silence_start, silence_end in silence_parts_list:
@@ -55,15 +58,15 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
                     split_end = silence_parts_list[next_index][0]
 
                     if silence_parts_list[next_index][1] >= origin_end:
-                        split_word = "~ "
-                        is_word_end = True
+                        split_word = end_piece
+                        is_word_end = origin_word_end
                     else:
                         split_word = "~"
                         is_word_end = False
                 else:
                     split_end = origin_end
-                    split_word = "~ "
-                    is_word_end = True
+                    split_word = end_piece
+                    is_word_end = origin_word_end
 
                 split_data = TranscribedData(confidence=data.confidence, word=split_word, end=split_end, start=silence_end, is_word_end=is_word_end)
 
@@ -87,7 +90,7 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
                 if split_data.end - split_data.start > 0.1:
                     was_split = True
                     new_transcribed_data.append(split_data)
-                elif split_word == "~ " and not data.is_word_end:
+                elif origin_word_end and split_word == "~ " and not data.is_word_end:
                     if new_transcribed_data[-1].word[-1] != " ":
                         new_transcribed_data[-1].word += " "
                     new_transcribed_data[-1].is_word_end = True
