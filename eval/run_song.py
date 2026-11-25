@@ -121,6 +121,11 @@ def run_configured(us, gt: "usdx.Song", gt_path: str, mode: str, out: str, cache
         s.lyrics_file = lyrics_path
         s.language = language_code(gt.language)
 
+    # pseudo-setting: take the language from the chart (short windows make Whisper's language
+    # detection unreliable; on full songs the pipeline detects it itself)
+    if "gt_language=true" in overrides:
+        overrides = [o for o in overrides if o != "gt_language=true"]
+        s.language = language_code(gt.language)
     apply_overrides(s, overrides)
     # Intermediate audio (denoised/mono/muted) and the transcription cache are not keyed
     # by separation model, so non-default models get their own cache folder.
