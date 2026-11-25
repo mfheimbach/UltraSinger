@@ -134,3 +134,28 @@ def separate_vocal_from_audio(cache_folder_path: str,
             print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached separated vocals")
 
     return audio_separation_path
+
+
+def dry_vocals(vocals_path: str, cache_folder_path: str, model_filename: str) -> str:
+    """De-reverberated copy of the separated vocals (extra layer for pitch/notes; cached)."""
+    import shutil
+    import tempfile
+    from audio_separator.separator import Separator
+
+    out_dir = os.path.join(cache_folder_path, f"dry_{os.path.splitext(model_filename)[0]}")
+    out = os.path.join(out_dir, "vocals.wav")
+    if check_file_exists(out):
+        return out
+    print(f"{ULTRASINGER_HEAD} De-reverberating vocals with {blue_highlighted(model_filename)}")
+    os.makedirs(out_dir, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="dry_")
+    sep = Separator(output_dir=tmp, model_file_dir=os.path.join(os.path.expanduser("~"), ".cache", "audio-separator"),
+                    output_format="WAV")
+    sep.load_model(model_filename=model_filename)
+    files = [os.path.join(tmp, f) if not os.path.isabs(f) else f for f in sep.separate(vocals_path)]
+    dry = next(f for f in files if "(noreverb)" in f.lower() or "(dry)" in f.lower())
+    shutil.move(dry, out)
+    shutil.rmtree(tmp, ignore_errors=True)
+    import gc
+    gc.collect()
+    return out

@@ -170,3 +170,29 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: list[str],
+               gt_language: bool = False, verbose: bool = False, cache_by: str = "lineage") -> str:
+    """Run a pipeline preset (src/pipeline) on the chart's audio. Overrides are 'step.param=value'.
+    Cache: the old per-separator layout (<cache>/demucs_<model>/ for models other than htdemucs),
+    so existing separations and transcriptions are reused. Returns the written txt."""
+    from pipeline.core import load_preset
+    from pipeline.run import run_song
+
+    overrides = list(overrides)
+    if gt_language:
+        overrides.append(f"transcribe.whisper.language={language_code(gt.language)}")
+    pipe = load_preset(preset, overrides)
+    sep = next((s for s in pipe.stages if s.name == "separate"), None)
+    sub = ""
+    if sep is not None:
+        p = sep.params
+        if p.separator_model:
+            sub = f"sep_{os.path.splitext(p.separator_model)[0]}" + (f"+{os.path.splitext(p.second_pass)[0]}" if p.second_pass else "")
+        elif p.model != "htdemucs" or p.second_pass:
+            sub = f"demucs_{p.model}" + (f"+{os.path.splitext(p.second_pass)[0]}" if p.second_pass else "")
+    cache_dir = os.path.join(os.path.abspath(cache), sub) if sub else os.path.abspath(cache)
+    store = run_song(os.path.abspath(gt.audio_path()), preset, overrides, os.path.abspath(out), cache_dir,
+                     "cpu", gt.artist, gt.title, copy_audio=False, verbose=verbose, cache_by=cache_by)
+    return store["file.txt"]

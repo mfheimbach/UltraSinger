@@ -32,7 +32,7 @@ sys.path.insert(0, HERE)
 
 import usdx  # noqa: E402
 from run_eval import discover, score_one, slug, write_outputs  # noqa: E402
-from run_song import run_configured  # noqa: E402
+from run_song import run_configured, run_preset  # noqa: E402
 
 
 def memoize_by_file(fn):
@@ -59,6 +59,11 @@ def main() -> None:
                     help="BPM scales to average over, e.g. 0.99 1 1.01. UltraSinger's note segmentation "
                          "is very sensitive to tiny BPM changes; averaging removes that noise from comparisons")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--preset", help="run a pipeline preset (presets/*.yaml) instead of the old run(); "
+                                     "overrides are then step.param=value; gt_language=true takes the chart's language")
+    ap.add_argument("--cache-by", choices=["lineage", "content"], default="lineage",
+                    help="lineage (default): step order is part of the cache key; content: steps whose inputs "
+                         "are identical share cache entries regardless of how they were produced")
     args = ap.parse_args()
     work = os.path.abspath(args.work)
 
@@ -78,7 +83,8 @@ def main() -> None:
         name = f"{args.prefix}_{label}"
         run_dir = os.path.join(work, "runs", name)
         os.makedirs(run_dir, exist_ok=True)
-        config = {"name": name, "mode": "full", "overrides": overrides, "oracle_lyrics": False}
+        config = {"name": name, "mode": "full", "overrides": overrides, "oracle_lyrics": False,
+                  "preset": args.preset}
         json.dump(config, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
         t0 = time.time()
         rows = []
@@ -91,11 +97,19 @@ def main() -> None:
                 shutil.rmtree(out, ignore_errors=True)
                 os.makedirs(out)
                 log = io.StringIO()
-                ov = overrides + ([f"bpm_scale={scale}"] if scale is not None else [])
                 try:
                     with contextlib.redirect_stdout(log if not args.verbose else sys.stdout):
-                        run_configured(us, usdx.read(txt), txt, "full", out,
-                                       os.path.join(work, "cache", slug(song_name)), ov)
+                        if args.preset:
+                            ov = [o for o in overrides if o != "gt_language=true"]
+                            ov += [f"tempo.scale={scale}"] if scale is not None else []
+                            chart = run_preset(usdx.read(txt), out, os.path.join(work, "cache", slug(song_name)),
+                                               args.preset, ov, gt_language="gt_language=true" in overrides,
+                                               verbose=True, cache_by=args.cache_by)
+                            json.dump({"txt": chart}, open(os.path.join(out, "run_info.json"), "w"))
+                        else:
+                            ov = overrides + ([f"bpm_scale={scale}"] if scale is not None else [])
+                            run_configured(us, usdx.read(txt), txt, "full", out,
+                                           os.path.join(work, "cache", slug(song_name)), ov)
                     per_scale.append(score_one("full", song_name, txt, os.path.dirname(out)))
                 except Exception as e:  # keep going
                     per_scale.append({"song": song_name, "error": repr(e)})

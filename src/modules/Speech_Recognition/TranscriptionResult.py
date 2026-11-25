@@ -12,3 +12,11 @@ class TranscriptionResult:
 
     transcribed_data: list[TranscribedData]
     detected_language: str
+
+    def rounded(self, decimals: int = 3) -> "TranscriptionResult":
+        """Word timings rounded to 1 ms. A fresh transcription (float32) and the same one read back
+        from the JSON cache (float64) differ by ~1e-7 s; downstream models (GAME chunk cuts) react
+        to that, so fresh and cached runs gave different charts. Rounding makes them identical."""
+        for t in self.transcribed_data:
+            t.start, t.end = round(float(t.start), decimals), round(float(t.end), decimals)
+        return self

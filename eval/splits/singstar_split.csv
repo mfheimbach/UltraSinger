@@ -1,0 +1,237 @@
+split,bucket,edition,song,group,note
+excluded,,SingStar Bollywood,Aashiqui - Nazar Ke Samne,Aashiqui,Hindi (outlier)
+excluded,,SingStar Bollywood,Aksar - Jhalak Dikhla Ja,Aksar,Hindi (outlier)
+excluded,,SingStar Bollywood,Chalte Chalte - Chalte chalte,Chalte Chalte,Hindi (outlier)
+excluded,,SingStar Bollywood,Chalte Chalte - Suno na suno na,Chalte Chalte,Hindi (outlier)
+excluded,,SingStar Bollywood,Chameli - Sajna ve sajna,Chameli,Hindi (outlier)
+excluded,,SingStar Bollywood,Dil Chahta Hai - Koi Kahe Kehta Rahe,Dil Chahta Hai,Hindi (outlier)
+excluded,,SingStar Bollywood,Don - Khaike Paan Banaraswala,Don,Hindi (outlier)
+excluded,,SingStar Bollywood,Don - Ye Mera Dil,Don,Hindi (outlier)
+excluded,,SingStar Bollywood,Guru - Barso Re,Guru,Hindi (outlier)
+excluded,,SingStar Bollywood,Guru - Tere Bina,Guru,Hindi (outlier)
+excluded,,SingStar Bollywood,Ishq Hai Tumse - O Soniya,Ishq Hai Tumse,Hindi (outlier)
+excluded,,SingStar Bollywood,Kaal - Kaal dhamaal,Kaal,Hindi (outlier)
+excluded,,SingStar Bollywood,Kaal - Tauba tauba,Kaal,Hindi (outlier)
+excluded,,SingStar Bollywood,Kabhi Alvida Naa Kehna - Mitwa,Kabhi Alvida Naa Kehna,Hindi (outlier)
+excluded,,SingStar Bollywood,Kabhi Alvida Naa Kehna - Where’s The Party Tonight,Kabhi Alvida Naa Kehna,Hindi (outlier)
+excluded,,SingStar Bollywood,Kabhi Khushi Kabhie Gham - Bole Chudiyan,Kabhi Khushi Kabhie Gham,Hindi (outlier)
+excluded,,SingStar Bollywood,Kabhi Khushi Kabhie Gham - Say Shava Shava,Kabhi Khushi Kabhie Gham,Hindi (outlier)
+excluded,,SingStar Bollywood,Kabhi Khushi Kabhie Gham - Suraj Hua Maddham,Kabhi Khushi Kabhie Gham,Hindi (outlier)
+excluded,,SingStar Bollywood,Kal Ho Naa Ho - It’s The Time To Disco,Kal Ho Naa Ho,Hindi (outlier)
+excluded,,SingStar Bollywood,Kal Ho Naa Ho - Maahi Ve,Kal Ho Naa Ho,Hindi (outlier)
+excluded,,SingStar Bollywood,Kal Ho Naa Ho - Pretty Woman,Kal Ho Naa Ho,Hindi (outlier)
+excluded,,SingStar Bollywood,Khakee - Dil Dooba,Khakee,Hindi (outlier)
+excluded,,SingStar Bollywood,Kuch Kuch Hota Hai - Koi Mil Gaya,Kuch Kuch Hota Hai,Hindi (outlier)
+excluded,,SingStar Bollywood,Kuch Kuch Hota Hai - Kuch Kuch Hota Hai,Kuch Kuch Hota Hai,Hindi (outlier)
+excluded,,SingStar Bollywood,Kya Love Story Hai - It’s Rocking,Kya Love Story Hai,Hindi (outlier)
+excluded,,SingStar Bollywood,Main Hoon Na (Sonu Nigam & Shreya Ghoshal) - Main hoon na,Main Hoon Na (Sonu Nigam,Hindi (outlier)
+excluded,,SingStar Bollywood,Main Hoon Na - Tumse Milke Dil Ka Hai Jo Haal,Main Hoon Na,Hindi (outlier)
+excluded,,SingStar Bollywood,Rang De Basanti - Rang De Basanti,Rang De Basanti,Hindi (outlier)
+excluded,,SingStar Bollywood,Rang De Basanti - Roobaroo,Rang De Basanti,Hindi (outlier)
+excluded,,SingStar Bollywood,Salaam-e-Ishq - Salaam-e-ishq,Salaam-e-Ishq,Hindi (outlier)
+excluded,en_pop,SingStar Anthems,LeAnn Rimes - Can’t Fight The Moonlight (Album Version),LeAnn Rimes,second cut of the same song
+hard,de_party,SingStar Fußballhits,Bayern-Fans United - Stern des Südens,Bayern-Fans United,fan choir
+hard,de_party,SingStar Fußballhits,Bruder Leichtfuß - Deutsche Nationalhymne (Stadion Version),Bruder Leichtfuß,stadium crowd
+hard,de_party,SingStar Fußballhits,Die Original Deutschmacher - Lebenslang Grünweiß (Werder Bremen 2004),Die Original Deutschmacher,fan choir
+hard,de_party,SingStar Fußballhits,Franz Beckenbauer - Gute Freunde kann niemand trennen,Franz Beckenbauer,"non-singer, 1966 recording"
+hard,de_party,SingStar Fußballhits,"Höhner - Wenn nicht jetzt, wann dann (Fußball Version)",Höhner,alt. crowd version
+hard,de_party,SingStar Après-Ski Party,"Höhner - Wenn nicht jetzt, wann dann (Halbfinal Version)",Höhner,alt. crowd version
+hard,de_party,SingStar Après-Ski Party 2,Mike der Bademeister - Eskimo (Der BRRR-Song),Mike der Bademeister,novelty / shouted
+hard,de_party,SingStar Après-Ski Party,Wolfgang Petry - Wahnsinn (Live),Wolfgang Petry,live
+reserve,de_party,SingStar Après-Ski Party 2,Anna-Maria Zimmermann - Frei sein,Anna-Maria Zimmermann,same artist as a test song
+reserve,de_party,SingStar Fußballhits,Chris Rabatz feat. The KingZ - Die Hände zum Himmel,Chris Rabatz,same artist as a test song
+reserve,de_party,SingStar Fußballhits,Christina Stürmer - Fieber,Christina Stürmer,same artist as a test song
+reserve,de_party,SingStar Fußballhits,"Höhner - Mer stonn zo Dir, FC Kölle",Höhner,same artist as a test song
+reserve,de_party,SingStar Après-Ski Party 2,Höhner - Schenk mir dein Herz (Radio Edit),Höhner,same artist as a test song
+reserve,de_party,SingStar Après-Ski Party,Mickie Krause - Finger im Po - Mexiko!,Mickie Krause,same artist as a test song
+reserve,de_party,SingStar Après-Ski Party,Mickie Krause - Laudato si,Mickie Krause,same artist as a test song
+reserve,de_party,SingStar Après-Ski Party 2,Peter Wackel - Es gibt nur ein Gas - Vollgas!,Peter Wackel,same artist as a test song
+reserve,de_party,SingStar Après-Ski Party,Peter Wackel - Ü30,Peter Wackel,same artist as a test song
+reserve,en_pop,SingStar Boy Bands vs Girl Bands,Busted - Air Hostess,Busted,same artist as a test song
+reserve,en_pop,SingStar Boy Bands vs Girl Bands,East 17 - Let It Rain,East 17,same artist as a test song
+reserve,en_pop,SingStar Boy Bands vs Girl Bands,Five - Everybody Get Up,Five,same artist as a test song
+reserve,en_pop,SingStar Boy Bands vs Girl Bands,McFly - All About You,McFly,same artist as a test song
+test,de_party,SingStar Après-Ski Party 2,Anna-Maria Zimmermann - 1000 Träume weit (Tornerò),Anna-Maria Zimmermann,
+test,de_party,SingStar Fußballhits,Chris Rabatz - Steht auf… (wenn ihr feiern wollt),Chris Rabatz,
+test,de_party,SingStar Après-Ski Party,DJ BoBo - Chihuahua,DJ BoBo,
+test,de_party,SingStar Après-Ski Party 2,Diana Sorbello - Mamma Maria,Diana Sorbello,
+test,de_party,SingStar Après-Ski Party,Erste Allgemeine Verunsicherung - Ding Dong,Erste Allgemeine Verunsicherung,
+test,de_party,SingStar Après-Ski Party,Fritz & The Downhill Gang - Genie auf die Ski,Fritz,
+test,de_party,SingStar Après-Ski Party,"Höhner - Viva Colonia (Da simmer dabei, dat is prima!)",Höhner,
+test,de_party,SingStar Après-Ski Party 2,Jürgen Drews - Ich bau dir ein Schloss,Jürgen Drews,
+test,de_party,SingStar Après-Ski Party 2,Mickie Krause - Himbeereis zum Frühstück,Mickie Krause,
+test,de_party,SingStar Après-Ski Party,"Nena - Irgendwie, irgendwo, irgendwann",Nena,
+test,de_party,SingStar Après-Ski Party,Olaf Henning - Cowboy und Indianer (Komm hol’ das Lasso raus),Olaf Henning,
+test,de_party,SingStar Après-Ski Party,"PS Alex - Eine Frau, die mich nach Hause trägt",PS Alex,
+test,de_party,SingStar Après-Ski Party,Peter Wackel - Ladioo (Original Mix),Peter Wackel,
+test,de_party,SingStar Après-Ski Party,Rheinländer - Wir alle wollen immer nur das eine,Rheinländer,
+test,de_poprock,SingStar Deutsch Rock-Pop,2raumwohnung - Wir trafen uns in einem Garten,2raumwohnung,
+test,de_poprock,SingStar Deutsch Rock-Pop,Christina Stürmer - Immer an euch geglaubt,Christina Stürmer,
+test,de_poprock,SingStar Deutsch Rock-Pop,Clueso - Kein Bock zu geh’n,Clueso,
+test,de_poprock,SingStar Deutsch Rock-Pop,Die Familie feat. Tobias Schlegl - Und tschüss,Die Familie,
+test,de_poprock,SingStar Deutsch Rock-Pop,Halogenpoeten - Die Ersten,Halogenpoeten,
+test,de_poprock,SingStar Deutsch Rock-Pop,Hund am Strand - Jungen Mädchen,Hund am Strand,
+test,de_poprock,SingStar Deutsch Rock-Pop,Ohrbooten - An alle Ladies,Ohrbooten,
+test,de_poprock,SingStar Deutsch Rock-Pop,OleSoul - Was kostet die Welt,OleSoul,
+test,de_poprock,SingStar Deutsch Rock-Pop,Tokio Hotel - Durch den Monsun,Tokio Hotel,
+test,de_rock,SingStar Amped [DE],In Extremo - Küss mich,In Extremo,
+test,en_party,SingStar Après-Ski Party 2,Agnes - Release Me,Agnes,
+test,en_party,SingStar Après-Ski Party 2,Alexandra Burke feat. Pitbull - All Night Long,Alexandra Burke,
+test,en_party,SingStar Après-Ski Party,Banaroo - Dubi Dam Dam,Banaroo,
+test,en_party,SingStar Après-Ski Party,Yoomiii - A Kiss Is All I Miss,Yoomiii,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Bangles - Eternal Flame,Bangles,
+test,en_pop,SingStar Chart Hits,Ben Lee - Catch My Disease,Ben Lee,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Boyzone - Love Me For A Reason,Boyzone,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Busted - What I Go To School For,Busted,
+test,en_pop,SingStar Anthems,Charlotte Church - Crazy Chick,Charlotte Church,
+test,en_pop,SingStar Anthems,Cher - If I Could Turn Back Time,Cher,
+test,en_pop,SingStar Boy Bands vs Girl Bands,East 17 - Stay Another Day,East 17,
+test,en_pop,SingStar Chart Hits,Empire Of The Sun - Walking On A Dream,Empire Of The Sun,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Five - Keep On Movin’,Five,
+test,en_pop,SingStar Anthems,Gloria Gaynor - I Will Survive,Gloria Gaynor,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Hanson - MmmBop,Hanson,
+test,en_pop,SingStar Boy Bands vs Girl Bands,Jade - Don’t Walk Away,Jade,
+test,en_pop,SingStar Boy Bands vs Girl Bands,McFly - 5 Colours In Her Hair,McFly,
+test,en_pop,SingStar Chart Hits,Michael Bublé - Haven’t Met You Yet,Michael Bublé,
+test,en_pop,SingStar Boy Bands vs Girl Bands,New Edition - Candy Girl,New Edition,
+test,en_pop,SingStar Chart Hits,The Last Goodnight - Pictures Of You,The Last Goodnight,
+test,en_pop,SingStar Anthems,The Weather Girls - It’s Raining Men,The Weather Girls,
+test,en_pop,SingStar Anthems,Ultra Naté - Free,Ultra Naté,
+test,en_pop,SingStar Anthems,Whitney Houston - I Wanna Dance With Somebody (Who Loves Me),Whitney Houston,
+test,en_rock,SingStar Amped [US],Audioslave - Cochise,Audioslave,
+test,en_rock,SingStar Amped [DE],Beatsteaks - Cut Off The Top,Beatsteaks,
+test,en_rock,SingStar Amped [DE],Blind - Break Away,Blind,
+test,en_rock,SingStar Amped [AU],Faith No More - Evidence,Faith No More,
+test,en_rock,SingStar Amped [DE],Gotthard - Lift U Up,Gotthard,
+test,en_rock,SingStar Amped [US],Pearl Jam - Alive,Pearl Jam,
+test,en_rock,SingStar Amped [AU],Silverchair - The Greatest View,Silverchair,
+test,en_rock,SingStar Amped [AU],Spiderbait - Black Betty,Spiderbait,
+test,en_rock,SingStar Amped [US],Stone Temple Pilots - Vasoline,Stone Temple Pilots,
+test,en_rock,SingStar Amped [US],Talking Heads - Burning Down The House,Talking Heads,
+test,en_rock,SingStar Amped [AU],Tonic - If You Could Only See,Tonic,
+test,en_rock,SingStar Amped [US],Yeah Yeah Yeahs - Gold Lion,Yeah Yeah Yeahs,
+train,de_party,SingStar Après-Ski Party 2,Andreas Martin - Ich fang Dir den Mond,Andreas Martin,
+train,de_party,SingStar Après-Ski Party 2,Anton feat. DJ Ötzi - Anton aus Tirol,Anton,
+train,de_party,SingStar Après-Ski Party 2,Culcha Candela - Eiskalt,Culcha Candela,
+train,de_party,SingStar Après-Ski Party,DJ Ötzi & Nik P. - Ein Stern (… der deinen Namen trägt),Anton,
+train,de_party,SingStar Après-Ski Party,De Randfichten - Lebt denn dr alte Holzmichl noch…,De Randfichten,
+train,de_party,SingStar Après-Ski Party 2,Die Atzen - Atzin,Alexander Marcus,
+train,de_party,SingStar Après-Ski Party 2,Die Atzen feat. Alexander Marcus - Florida Lady,Alexander Marcus,
+train,de_party,SingStar Après-Ski Party 2,Domstürmer - Oberaffengeil,Domstürmer,
+train,de_party,SingStar Après-Ski Party,Guildo Horn & die Orthopädischen Strümpfe - Guildo hat euch lieb!,Guildo Horn,
+train,de_party,SingStar Après-Ski Party,Jumpy feat. Mungo Jerry - In der Winterzeit (In The Wintertime),Jumpy,
+train,de_party,SingStar Après-Ski Party 2,Jäger DJ Alex - So schön ist es nur beim Après-Ski,Jäger DJ Alex,
+train,de_party,SingStar Après-Ski Party 2,Jörg und Dragan - Superhupen,Jörg und Dragan,
+train,de_party,SingStar Fußballhits,Jürgen & Libero 5 - Deutschland ist der geilste Club der Welt,Jürgen,
+train,de_party,SingStar Après-Ski Party,K2 - Der Berg ruft,K2,
+train,de_party,SingStar Après-Ski Party,"Krümel - Zieh dich aus, wir müssen reden",Krümel,
+train,de_party,SingStar Après-Ski Party 2,Libero 5 - Der ganze Bus muss Pipi,Jürgen,
+train,de_party,SingStar Après-Ski Party,"Lollies - Wenn Du denkst Du denkst, dann denkst Du nur Du denkst!",Lollies,
+train,de_party,SingStar Après-Ski Party 2,Nik P. - Der Mann im Mond,Anton,
+train,de_party,SingStar Après-Ski Party,Rabaue - Was kann ich denn dafür… (dass ich schön bin),Rabaue,
+train,de_party,SingStar Après-Ski Party,"Rühmanns (Sch)erben - Ein Freund, ein guter Freund",Rühmanns (Sch)erben,
+train,de_party,SingStar Fußballhits,"Sportfreunde Stiller - ’54, ’74, ’90, 2010",Sportfreunde Stiller,
+train,de_party,SingStar Après-Ski Party 2,Tim Toupet - Bobfahrerlied,Tim Toupet,
+train,de_party,SingStar Après-Ski Party 2,Tim Toupet - Ein Diamant (Tim Toupet Partyfox-Mix),Tim Toupet,
+train,de_party,SingStar Fußballhits,Tim Toupet - …so ein schöner Tag (Fliegerlied) (Fußball Deutschland Version),Tim Toupet,
+train,de_party,SingStar Après-Ski Party 2,Tom Kruse - Wunder gibt es immer wieder,Tom Kruse,
+train,de_poprock,SingStar Deutsch Rock-Pop,Annett Louisan - Das Gefühl,Annett Louisan,
+train,de_poprock,SingStar Deutsch Rock-Pop,Ayman - Mein Stern,Ayman,
+train,de_poprock,SingStar Deutsch Rock-Pop,Buddy vs. DJ The Wave - Ab in den Süden,Buddy,
+train,de_poprock,SingStar Deutsch Rock-Pop,Echt - Weinst du,Echt,
+train,de_poprock,SingStar Deutsch Rock-Pop,Franziska - Schau mir ins Gesicht,Franziska,
+train,de_poprock,SingStar Deutsch Rock-Pop,Glashaus - Haltet die Welt an,Glashaus,
+train,de_poprock,SingStar Deutsch Rock-Pop,Ich + Ich - Du erinnerst mich an Liebe,Ich,
+train,de_poprock,SingStar Deutsch Rock-Pop,Juli - Geile Zeit,Juli,
+train,de_poprock,SingStar Deutsch Rock-Pop,Juli - Regen + Meer,Juli,
+train,de_poprock,SingStar Deutsch Rock-Pop,Laith Al-Deen - Leb den Tag,Laith Al-Deen,
+train,de_poprock,SingStar Deutsch Rock-Pop,Luka Neuser - Zeit für Helden,Luka Neuser,
+train,de_poprock,SingStar Deutsch Rock-Pop,Maya Saban + Cosmo Klein - Das alles ändert nichts daran,Cosmo Klein,
+train,de_poprock,SingStar Deutsch Rock-Pop,Revolverheld - Freunde bleiben,Revolverheld,
+train,de_poprock,SingStar Deutsch Rock-Pop,Rosenstolz - Ich bin ich (Wir sind wir),Rosenstolz,
+train,de_poprock,SingStar Deutsch Rock-Pop,Söhne Mannheims - Und wenn ein Lied,Söhne Mannheims,
+train,de_poprock,SingStar Deutsch Rock-Pop,Wir sind Helden - Nur ein Wort,Wir sind Helden,
+train,de_poprock,SingStar Deutsch Rock-Pop,Wir sind Helden - Von hier an blind,Wir sind Helden,
+train,de_poprock,SingStar Deutsch Rock-Pop,Xavier Naidoo - Dieser Weg,Xavier Naidoo,
+train,de_poprock,SingStar Deutsch Rock-Pop,"Yvonne Catterfeld - Sag mir, was meinst du",Yvonne Catterfeld,
+train,de_rock,SingStar Amped [DE],Die Toten Hosen - Warum werde ich nicht satt,Die Toten Hosen,
+train,en_party,SingStar Après-Ski Party,Bellamy Brothers - Let Your Love Flow,Bellamy Brothers,
+train,en_party,SingStar Après-Ski Party 2,Chubby Checker - Let’s Twist Again,Chubby Checker,
+train,en_party,SingStar Après-Ski Party 2,Daniela Katzenberger - Nothing’s Gonna Stop Me Now,Daniela Katzenberger,
+train,en_party,SingStar Fußballhits,Gerry & The Pacemakers - You’ll Never Walk Alone,Gerry,
+train,en_party,SingStar Après-Ski Party,Hermes House Band - Country Roads,Hermes House Band,
+train,en_party,SingStar Après-Ski Party 2,Hermes House Band - I Will Survive (La La La),Hermes House Band,
+train,en_party,SingStar Après-Ski Party 2,Lady Gaga - Bad Romance,Lady Gaga,
+train,en_party,SingStar Après-Ski Party 2,Medina - You And I,Medina,
+train,en_party,SingStar Après-Ski Party,Right Said Fred - You’re My Mate,Right Said Fred,
+train,en_party,SingStar Après-Ski Party 2,Wanda Jackson - Let’s Have A Party,Wanda Jackson,
+train,en_pop,SingStar Chart Hits,3OH!3 - Don’t Trust Me,3OH!3,
+train,en_pop,SingStar Chart Hits,A.R. Rahman & The Pussycat Dolls feat. Nicole Scherzinger - Jai Ho! (You Are My Destiny),A.R. Rahman,
+train,en_pop,SingStar Chart Hits,Alex Lloyd - Amazing,Alex Lloyd,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Bananarama - Cruel Summer,Bananarama,
+train,en_pop,SingStar Anthems,Bananarama - I Heard A Rumour,Bananarama,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Bananarama - Love In The First Degree,Bananarama,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Boyz II Men - I’ll Make Love To You,Boyz II Men,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Bros - I Owe You Nothing,Bros,
+train,en_pop,SingStar Anthems,Bucks Fizz - Making Your Mind Up,Bucks Fizz,
+train,en_pop,SingStar Anthems,Candi Staton - Young Hearts Run Free,Candi Staton,
+train,en_pop,SingStar Anthems,Charlene - I’ve Never Been To Me,Charlene,
+train,en_pop,SingStar Chart Hits,Colbie Caillat - Fallin’ For You,Colbie Caillat,
+train,en_pop,SingStar Chart Hits,George Michael - Outside,George Michael,
+train,en_pop,SingStar Anthems,Girls Aloud - Biology,Girls Aloud,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Girls Aloud - The Show,Girls Aloud,
+train,en_pop,SingStar Chart Hits,Kate Miller-Heidke - The Last Day On Earth,Kate Miller-Heidke,
+train,en_pop,SingStar Chart Hits,La Roux - Bulletproof,La Roux,
+train,en_pop,SingStar Anthems,LeAnn Rimes - Can’t Fight The Moonlight,LeAnn Rimes,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Mel & Kim - Showing Out (Get Fresh At The Weekend),Kim,
+train,en_pop,SingStar Chart Hits,Mika - We Are Golden,Mika,
+train,en_pop,SingStar Chart Hits,Milli Vanilli - Blame It On The Rain,Milli Vanilli,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Mis-Teeq - One Night Stand,Mis-Teeq,
+train,en_pop,SingStar Chart Hits,Natalie Bassingthwaighte - Alive,Natalie Bassingthwaighte,
+train,en_pop,SingStar Chart Hits,Natalie Bassingthwaighte - Someday Soon,Natalie Bassingthwaighte,
+train,en_pop,SingStar Chart Hits,Pixie Lott - Boys And Girls,Pixie Lott,
+train,en_pop,SingStar Anthems,Scissor Sisters - Laura,Scissor Sisters,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Sister Sledge - He’s The Greatest Dancer,Sister Sledge,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Spice Girls - Say You’ll Be There,Spice Girls,
+train,en_pop,SingStar Anthems,Steps - Deeper Shade Of Blue,Steps,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Sugababes - About You Now,Sugababes,
+train,en_pop,SingStar Chart Hits,The Living End - White Noise,The Living End,
+train,en_pop,SingStar Chart Hits,The Presets - This Boy’s In Love,The Presets,
+train,en_pop,SingStar Anthems,The Pussycat Dolls - Don’t Cha (Radio Edit),A.R. Rahman,
+train,en_pop,SingStar Chart Hits,The Pussycat Dolls - Hush Hush; Hush Hush,A.R. Rahman,
+train,en_pop,SingStar Boy Bands vs Girl Bands,The Pussycat Dolls feat. Avant - Stickwitu,A.R. Rahman,
+train,en_pop,SingStar Chart Hits,Vanessa Amorosi - This Is Who I Am,Vanessa Amorosi,
+train,en_pop,SingStar Chart Hits,Vitamin C - Graduation (Friends Forever),Vitamin C,
+train,en_pop,SingStar Chart Hits,Wes Carr - Feels Like Woah,Wes Carr,
+train,en_pop,SingStar Chart Hits,Wes Carr - You,Wes Carr,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Westlife - Flying Without Wings,Westlife,
+train,en_pop,SingStar Boy Bands vs Girl Bands,Westlife - Swear It Again,Westlife,
+train,en_pop,SingStar Chart Hits,Wolfmother - New Moon Rising,Wolfmother,
+train,en_rock,SingStar Amped [AU],4 Non Blondes - What’s Up,4 Non Blondes,
+train,en_rock,SingStar Amped [US],Alice In Chains - Would,Alice In Chains,
+train,en_rock,SingStar Amped [DE],Bonfire - You Make Me Feel,Bonfire,
+train,en_rock,SingStar Amped [DE],Caesars - Jerk It Out,Caesars,
+train,en_rock,SingStar Amped [AU],Choirboys - Run To Paradise,Choirboys,
+train,en_rock,SingStar Amped [AU],Divinyls - Boys In Town,Divinyls,
+train,en_rock,SingStar Amped [AU],Faker - This Heart Attack,Faker,
+train,en_rock,SingStar Amped [US],Foo Fighters - Best Of You,Foo Fighters,
+train,en_rock,SingStar Amped [DE],Good Charlotte - I Don’t Want To Be In Love (Dance Floor Anthem),Good Charlotte,
+train,en_rock,SingStar Amped [AU],Grinspoon - Chemical Heart,Grinspoon,
+train,en_rock,SingStar Amped [DE],Mando Diao - Long Before Rock ’n’ Roll,Mando Diao,
+train,en_rock,SingStar Amped [US],Nickelback - Savin’ Me,Nickelback,
+train,en_rock,SingStar Amped [US],Queens Of The Stone Age - Go With The Flow,Queens Of The Stone Age,
+train,en_rock,SingStar Amped [US],Radiohead - Creep,Radiohead,
+train,en_rock,SingStar Amped [US],Ramones - Blitzkrieg Bop,Ramones,
+train,en_rock,SingStar Amped [AU],Regurgitator - Black Bugs,Regurgitator,
+train,en_rock,SingStar Amped [AU],Robert Palmer - Addicted To Love,Robert Palmer,
+train,en_rock,SingStar Amped [DE],Scorpions - Rock You Like A Hurricane,Scorpions,
+train,en_rock,SingStar Amped [US],Steppenwolf - Born To Be Wild,Steppenwolf,
+train,en_rock,SingStar Amped [AU],T. Rex - 20th Century Boy,T. Rex,
+train,en_rock,SingStar Amped [AU],The Cure - Primary,The Cure,
+train,en_rock,SingStar Amped [DE],The Hives - Walk Idiot Walk,The Hives,
+train,en_rock,SingStar Amped [US],The Killers - When You Were Young,The Killers,
+train,en_rock,SingStar Amped [AU],The Mighty Mighty BossTones - The Impression That I Get,The Mighty Mighty BossTones,
+train,en_rock,SingStar Amped [AU],The Saints - (I’m) Stranded,The Saints,
+train,en_rock,SingStar Amped [DE],Wolfmother - Woman,Wolfmother,
+train,en_rock,SingStar Amped [US],Yes - Owner Of A Lonely Heart,Yes,
+train,en_rock,SingStar Amped [US],ZZ Top - Gimme All Your Lovin’,ZZ Top,

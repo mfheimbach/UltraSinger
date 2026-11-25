@@ -20,3 +20,6 @@ output
 eval_data/
 eval_work/
 eval_work_*/
+
+# SingStar eval audio + charts (private, not redistributable)
+eval_singstar/

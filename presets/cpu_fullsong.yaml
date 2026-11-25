@@ -1,0 +1,25 @@
+# CPU proxy for full songs (htdemucs + Whisper medium), otherwise like best.
+name: cpu_fullsong
+steps:
+  - use: separate
+    params: {model: htdemucs}
+  - use: prepare
+  - use: tempo
+  - use: key
+  - use: transcribe.whisper
+    params: {model: medium, batch_size: 4}
+  - use: lyrics.lrclib
+  - use: words.correct_lyrics
+  - use: words.strip_punctuation
+  - use: syllables.hyphenate
+  - use: syllables.silence_split
+  - use: pitch.rmvpe
+  - use: segment.game
+  - use: notes.from_pitch
+  - use: notes.game_pitch
+  - use: notes.merge
+  - use: notes.snap_edges
+  - use: notes.calibrate
+  - use: notes.line_breaks
+  - use: write.ultrastar
+    params: {stems: false}

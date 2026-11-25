@@ -20,11 +20,22 @@ MAX_CHUNK_SECONDS = 30.0  # default; attention cost grows with length, long audi
 
 
 class GameModel:
-    def __init__(self, model_dir: str, device: str = "cpu"):
+    def __init__(self, model_dir: str, device: str = "cpu", seed: int = 0):
         import onnxruntime as ort
         self.config = json.load(open(os.path.join(model_dir, "config.json")))
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
-        load = lambda name: ort.InferenceSession(os.path.join(model_dir, f"{name}.onnx"), providers=providers)
+        opts = ort.SessionOptions()
+        opts.use_deterministic_compute = True
+
+        def load(name):
+            # The segmenter samples noise (RandomUniformLike without a seed): identical input gave
+            # 59-65 notes from run to run. Seed it so results are reproducible (and cacheable).
+            import onnx
+            model = onnx.load(os.path.join(model_dir, f"{name}.onnx"))
+            for node in model.graph.node:
+                if node.op_type.startswith("Random"):
+                    node.attribute.append(onnx.helper.make_attribute("seed", float(seed)))
+            return ort.InferenceSession(model.SerializeToString(), opts, providers=providers)
         self.encoder, self.dur2bd, self.segmenter = load("encoder"), load("dur2bd"), load("segmenter")
         self.bd2dur, self.estimator = load("bd2dur"), load("estimator")
         self.sr = self.config["samplerate"]
@@ -81,8 +92,16 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr
     lang = model.language_id(language)
-    syllables = [s for s in transcribed_data if s.end > s.start]
-    result = {id(s): [] for s in syllables}
+    # Work on timings rounded to 1 ms: fresh transcriptions (float32) and cached JSON (float64)
+    # differ by ~1e-7 s, which shifts chunk cuts by a sample and changes GAME's output.
+    class _Syl:
+        __slots__ = ("orig", "start", "end")
+
+        def __init__(self, orig):
+            self.orig, self.start, self.end = orig, round(float(orig.start), 3), round(float(orig.end), 3)
+
+    syllables = [_Syl(s) for s in transcribed_data if round(float(s.end), 3) > round(float(s.start), 3)]
+    result = {id(s.orig): [] for s in syllables}
 
     for c0, c1, chunk in _chunks(syllables, total, chunk_seconds):
         wave = y[int(c0 * model.sr): int(c1 * model.sr)]
@@ -111,7 +130,7 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
             for n0, n1, p, sc in notes:
                 mid = (n0 + n1) / 2
                 if p and a <= mid < b:
-                    result[id(s)].append((max(n0, a), min(n1, b), sc))
+                    result[id(s.orig)].append((max(n0, a), min(n1, b), sc))
     return result
 
 

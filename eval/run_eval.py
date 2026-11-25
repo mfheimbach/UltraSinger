@@ -45,7 +45,7 @@ def slug(name: str) -> str:
 
 def _song_folders(root: str):
     """Every folder below root that holds an UltraStar txt (USDB Syncer may nest by artist)."""
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):  # split sets are symlinks
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
         if any(f.lower().endswith(".txt") for f in filenames) and usdx.find_song_txt(dirpath):
             yield dirpath

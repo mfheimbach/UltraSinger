@@ -49,6 +49,7 @@ class Settings:
     # English-only model tiny.en|base.en|small.en|medium.en
     whisper_align_model = None   # Model for other languages from huggingface.co e.g -> "gigant/romanian-wav2vec2"
     whisper_batch_size = 16   # reduce if low on GPU mem
+    whisper_vad = "default"  # default (whisperX pyannote) | rms (energy VAD on the vocals, Syed et al. 2025)
     whisper_compute_type = None   # change to "int8" if low on GPU mem (may reduce accuracy)
     keep_numbers = False
     # Which audio the transcriber hears: processed (separated+denoised+muted, original
@@ -84,6 +85,7 @@ class Settings:
     # processed (separated+denoised+muted, original) | vocals (separated) | mix (original audio)
     pitch_detector = "swiftf0"
     pitch_audio = "processed"
+    dry_vocals_model = "deverb_bs_roformer_8_384dim_10depth.ckpt"  # pitch_audio/game_audio=dry: de-reverb model
     pitch_shift_passes = "0"  # rmvpe: semitone shifts, median of the passes (e.g. "-1/0/1")
 
     # Note segmentation inside syllables: grid (fixed 16th notes, then merge: original) |

@@ -452,12 +452,12 @@ def segment_with_game(process_data):
     import hashlib
     from modules.Midi.game_segmenter import game_notes_per_syllable, split_syllables_by_game
     paths = process_data.process_data_paths
-    audio = {"mix": paths.audio_output_file_path,
-             "processed": paths.processing_audio_path}.get(settings.game_audio, paths.vocals_audio_file_path)
+    audio = layer_audio(paths, settings.game_audio)
     syllables = process_data.transcribed_data
     key = json.dumps([[round(t.start, 3), round(t.end, 3)] for t in syllables]
-                     + [settings.game_model_dir, settings.game_audio, settings.game_boundary_threshold,
-                        settings.game_steps, process_data.media_info.language]
+                     + [settings.game_model_dir, settings.game_audio + (f"_{settings.dry_vocals_model}" if settings.game_audio == "dry" else ""),
+                        settings.game_boundary_threshold,
+                        settings.game_steps, process_data.media_info.language, "ms-rounded", "seed0"]
                      + ([settings.game_chunk_seconds] if settings.game_chunk_seconds != 30.0 else []))
     cache_path = os.path.join(paths.cache_folder_path, f"game_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json")
     if check_file_exists(cache_path) and not settings.skip_cache_pitch_detection:
@@ -925,6 +925,8 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
         transcription_config = f"{settings.transcriber}_{settings.whisper_model.value}_{whisper_device}_{whisper_align_model_string}_{settings.whisper_batch_size}_{settings.whisper_compute_type}_{settings.language}"
         if settings.transcription_audio != "processed":
             transcription_config += f"_{settings.transcription_audio}"
+        if settings.whisper_vad != "default":
+            transcription_config += f"_vad{settings.whisper_vad}"
         transcription_path = os.path.join(cache_folder_path, f"{transcription_config}.json")
         cached_transcription_available = check_file_exists(transcription_path)
         if settings.skip_cache_transcription or not cached_transcription_available:
@@ -937,6 +939,7 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
                 settings.whisper_compute_type,
                 settings.language,
                 settings.keep_numbers,
+                settings.whisper_vad,
             )
             with open(transcription_path, "w", encoding=FILE_ENCODING) as file:
                 file.write(transcription_result.to_json())
@@ -977,7 +980,7 @@ def transcribe_audio(cache_folder_path: str, processing_audio_path: str) -> Tran
                 transcription_result = TranscriptionResult.from_json(file.read())
     else:
         raise NotImplementedError
-    return transcription_result
+    return transcription_result.rounded()
 
 
 def align_known_lyrics(cache_folder_path: str, processing_audio_path: str) -> TranscriptionResult:
@@ -1077,6 +1080,15 @@ def pitch_shift_passes() -> tuple[float, ...]:
     return tuple(float(x) for x in re.split(r"[,/;]", str(settings.pitch_shift_passes)) if x.strip()) or (0.0,)
 
 
+def layer_audio(paths: ProcessDataPaths, which: str) -> str:
+    """Audio layer for pitch/notes: mix | vocals | dry (de-reverberated vocals) | processed."""
+    if which == "dry":
+        from modules.Audio.separation import dry_vocals
+        return dry_vocals(paths.vocals_audio_file_path, paths.cache_folder_path, settings.dry_vocals_model)
+    return {"mix": paths.audio_output_file_path,
+            "vocals": paths.vocals_audio_file_path}.get(which, paths.processing_audio_path)
+
+
 def pitch_audio(
         process_data_paths: ProcessDataPaths) -> PitchedData:
     """Pitch audio"""
@@ -1084,16 +1096,15 @@ def pitch_audio(
     pitching_config = f"swiftf0_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
     if settings.pitch_detector != "swiftf0" or settings.pitch_audio != "processed":
         pitching_config = f"{settings.pitch_detector}_{settings.pitch_audio}_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
+        if settings.pitch_audio == "dry":
+            pitching_config += f"_{os.path.splitext(settings.dry_vocals_model)[0]}"
         if pitch_shift_passes() != (0,):
             pitching_config += "_shifts" + "_".join(f"{x:g}" for x in pitch_shift_passes())
     pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
     cache_available = check_file_exists(pitched_data_path)
 
     if settings.skip_cache_pitch_detection or not cache_available:
-        audio_path = {
-            "mix": process_data_paths.audio_output_file_path,
-            "vocals": process_data_paths.vocals_audio_file_path,
-        }.get(settings.pitch_audio, process_data_paths.processing_audio_path)
+        audio_path = layer_audio(process_data_paths, settings.pitch_audio)
         if settings.pitch_detector == "rmvpe":
             from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
             pitched_data = get_pitch_with_rmvpe(audio_path, settings.pytorch_device, pitch_shift_passes())
