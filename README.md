@@ -102,6 +102,7 @@ Options:
   --list             list all stages and their parameters
   --check            validate the preset (with your --set changes) and exit
   --where STEP       show every position where STEP could run, and exit
+  --estimate         estimated runtime for the input, from earlier runs on this machine, and exit
 ```
 
 ### Presets and stages
@@ -131,6 +132,8 @@ cleanup, silence splitting or a segmenter operate on syllables instead of words.
 Each output folder contains the chart, `lineage.json` (time, code version, every step and
 parameter that produced it) and `run_log.jsonl` (per-stage timings, cache hits, memory, and every
 message including library warnings and output, which the console shows only once and in short).
+Every computed stage also records its runtime (with audio length, device, parameters) in
+`~/.cache/ultrasinger/runtimes.jsonl`; runs log an estimate up front and `--estimate` prints one.
 
 Models with their own licenses: GAME note segmentation (CC BY-NC-SA 4.0, set
 `segment.game.model_dir`; `segment.contour` is a license-free alternative), the punctuation model

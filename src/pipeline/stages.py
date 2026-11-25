@@ -1,7 +1,7 @@
 """Stages wrapping UltraSinger's processing steps.
 
 Artifact names used by the default presets:
-  audio.mix, audio.vocals, audio.instrumental, audio.processed, audio.dry
+  audio.mix, audio.vocals, audio.instrumental, audio.processed
   words, syllables, pitch, aux.game, notes, tempo, key, language, lyrics, media, file.txt
 
 Logging: stages log through logging.getLogger("ultrasinger.<area>"); see pipeline/log.py.
@@ -33,40 +33,18 @@ class SeparateVocals(Stage):
     @dataclass
     class Params:
         model: str = "htdemucs_ft"            # demucs model
-        separator_model: str | None = None    # audio-separator model file (replaces demucs)
-        second_pass: str | None = None        # lead-vocal / de-reverb model on the vocals
-        shifts: int = 1                       # demucs: average over this many randomly shifted passes
-        seed: int = 0                         # seed of those random shifts (reproducible runs)
+        separator_model: str | None = None    # audio-separator model file instead of demucs (e.g. new models)
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
         from pipeline.core import fingerprint
         p = self.params
-        # the separation module caches by file name; a folder per input content (and per shift
-        # setting, if not the default) keeps it honest
-        tag = "" if (p.shifts, p.seed) == (1, 0) else f"_s{p.shifts}r{p.seed}"
-        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}{tag}")
+        # the separation module caches by file name; a folder per input content keeps it honest
+        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}")
         folder = separate_vocal_from_audio(work, audio, True, True, ctx.device, DemucsModel(p.model), False,
-                                           p.separator_model, p.second_pass, p.shifts, p.seed)
+                                           p.separator_model)
         return {"vocals": os.path.join(folder, "vocals.wav"),
                 "instrumental": os.path.join(folder, "no_vocals.wav")}
-
-
-@stage
-class DeReverb(Stage):
-    """audio -> de-reverberated audio (audio-separator de-reverb model)."""
-    name = "dereverb"
-    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
-    inputs = {"audio": "audio.vocals"}
-    outputs = {"audio": "audio.dry"}
-
-    @dataclass
-    class Params:
-        model: str = "deverb_bs_roformer_8_384dim_10depth.ckpt"
-
-    def run(self, ctx, audio):
-        from modules.Audio.separation import dry_vocals
-        return {"audio": dry_vocals(audio, ctx.cache_dir, self.params.model)}
 
 
 @stage
@@ -146,14 +124,13 @@ class TranscribeWhisper(Stage):
         compute_type: str | None = None
         align_model: str | None = None
         language: str | None = None
-        vad: str = "default"          # default | rms
         keep_numbers: bool = False
 
     def run(self, ctx, audio):
         from modules.Speech_Recognition.Whisper import WhisperModel, transcribe_with_whisper
         p = self.params
         result = transcribe_with_whisper(audio, WhisperModel(p.model), ctx.device, p.align_model, p.batch_size,
-                                         p.compute_type, p.language, p.keep_numbers, p.vad)
+                                         p.compute_type, p.language, p.keep_numbers)
         result.rounded()  # 1 ms: fresh (float32) and cached (float64) timings must be identical
         return {"words": result.transcribed_data, "language": p.language or result.detected_language}
 
@@ -333,14 +310,9 @@ class PitchRMVPE(Stage):
     inputs = {"audio": "audio.vocals"}
     outputs = {"pitch": "pitch"}
 
-    @dataclass
-    class Params:
-        shifts: str = "0"   # semitone passes, '/'-separated, median of the passes
-
     def run(self, ctx, audio):
         from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
-        shifts = tuple(float(x) for x in str(self.params.shifts).replace(",", "/").split("/") if x.strip()) or (0.0,)
-        return {"pitch": get_pitch_with_rmvpe(audio, ctx.device, shifts)}
+        return {"pitch": get_pitch_with_rmvpe(audio, ctx.device)}
 
 
 @stage

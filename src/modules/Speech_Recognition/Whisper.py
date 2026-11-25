@@ -101,7 +101,6 @@ def transcribe_with_whisper(
     compute_type: str = None,
     language: str = None,
     keep_numbers: bool = False,
-    vad: str = "default",
 ) -> TranscriptionResult:
     """Transcribe with whisper"""
     # Info: Regardless of the audio sampling rate used in the original audio file, whisper resample the audio signal to 16kHz (via ffmpeg). So the standard input from (44.1 or 48 kHz) should work.
@@ -117,12 +116,8 @@ def transcribe_with_whisper(
 
     try:
         torch.cuda.empty_cache()
-        vad_kwargs = {}
-        if vad == "rms":
-            from modules.Speech_Recognition.rms_vad import RmsVad
-            vad_kwargs["vad_model"] = RmsVad()
         loaded_whisper_model = whisperx.load_model(
-            model.value, language=language, device=device, compute_type=compute_type, **vad_kwargs
+            model.value, language=language, device=device, compute_type=compute_type
         )
 
         audio = whisperx.load_audio(audio_path)

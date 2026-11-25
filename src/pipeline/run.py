@@ -46,12 +46,13 @@ def run_pipeline(song, preset, overrides: list[str] | None = None, cache_dir: st
     pipeline = load_preset(preset_path(preset) if isinstance(preset, str) else preset, overrides)
     ctx = Context(cache_dir=cache_dir or os.path.join(song.song_dir, "cache"), output_dir=song.song_dir,
                   device=device, basename=song.basename, verbose=verbose, cache_by=cache_by,
-                  extra={"fresh": set(fresh)})
+                  extra={"fresh": set(fresh), "code_version": _git_version()})
     store = {"audio.mix": os.path.abspath(song.audio), "media": song.media}
     if song.chart:
         store["chart"] = song.chart
     store.update(extra or {})
     with run_logging(os.path.join(song.song_dir, "run_log.jsonl"), verbose, debug):
+        _log_estimate(pipeline, ctx, store)
         store = pipeline.run(ctx, store)
     with open(os.path.join(song.song_dir, "lineage.json"), "w", encoding="utf-8") as f:
         json.dump({"created": time.strftime("%Y-%m-%d %H:%M:%S"), "code": _git_version(),
@@ -59,6 +60,23 @@ def run_pipeline(song, preset, overrides: list[str] | None = None, cache_dir: st
                    "steps": [st.id for st in pipeline.stages],
                    "chain": store["_lineage"].get("file.txt", [])}, f, indent=1, default=str)
     return store
+
+
+def _log_estimate(pipeline, ctx, store) -> None:
+    """Expected runtime from earlier runs (stages that will come from the cache are not excluded)."""
+    from pipeline import runtimes
+    from pipeline.log import get
+    secs = runtimes.audio_seconds(store["audio.mix"])
+    ctx.extra["audio_seconds"] = secs
+    if not secs:
+        return
+    rows, total = runtimes.estimate(pipeline.stages, secs, ctx.device)
+    known = [r for r in rows if r[1] is not None]
+    if known:
+        unknown = [sid for sid, est, _ in rows if est is None]
+        get("run").info(f"{secs:.0f} s of audio: up to ~{total / 60:.1f} min without cache "
+                        f"(from {sum(n for *_, n in known)} earlier stage runs"
+                        + (f"; no data for {', '.join(unknown)}" if unknown else "") + ")")
 
 
 def _git_version() -> str | None:

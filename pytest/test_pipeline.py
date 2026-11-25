@@ -11,6 +11,9 @@ import tempfile
 
 import pytest
 
+# test runs must not end up in the real runtime log
+os.environ["ULTRASINGER_RUNTIME_LOG"] = os.path.join(tempfile.gettempdir(), "ultrasinger_test_runtimes.jsonl")
+
 from pipeline import stages  # noqa: F401  (registers stages)
 from pipeline import contracts
 from pipeline.core import Context, Pipeline, Stage, StepSpec, load_preset, stage

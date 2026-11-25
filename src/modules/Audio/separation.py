@@ -22,21 +22,20 @@ class DemucsModel(Enum):
     MDX_EXTRA_Q = "mdx_extra_q"     # quantized version of mdx_extra. Smaller download and storage but quality can be slightly worse.
     SIG = "SIG"                     # Placeholder for a single model from the model zoo.
 
-def separate_audio(input_file_path: str, output_folder: str, model: DemucsModel, device="cpu",
-                   shifts: int = 1, seed: int = 0) -> None:
-    """Separate vocals from audio with demucs. shifts > 1 averages that many passes over randomly
-    time-shifted copies (better separation, shifts x slower); the random offsets are seeded."""
+def separate_audio(input_file_path: str, output_folder: str, model: DemucsModel, device="cpu") -> None:
+    """Separate vocals from audio with demucs (its random time shift seeded: reproducible).
+    Averaging several shifted passes (--shifts 3) was tested on the SingStar bench: no effect beyond
+    noise, 3x slower, so it is not offered."""
 
     log.info(f"Separating vocals from audio with {blue_highlighted('demucs')} with model {blue_highlighted(model.value)} and {red_highlighted(device)} as worker."
     )
 
     # demucs shifts the input by a random offset (shifts=1 by default): seed it, or every run differs
     import random
-    random.seed(seed)
+    random.seed(0)
     demucs.separate.main(
         [
             "--two-stems", "vocals",
-            "--shifts", str(shifts),
             "-d", f"{device}",
             "--float32",
             "-n",
@@ -98,9 +97,7 @@ def separate_vocal_from_audio(cache_folder_path: str,
                               model: DemucsModel,
                               skip_cache: bool = False,
                               separator_model: str = None,
-                              lead_vocal_model: str = None,
-                              shifts: int = 1,
-                              seed: int = 0) -> str:
+                              lead_vocal_model: str = None) -> str:
     """Separate vocal from audio"""
     demucs_output_folder = os.path.splitext(os.path.basename(audio_output_file_path))[0]
     model_folder = model.value + (f"+{os.path.splitext(lead_vocal_model)[0]}" if lead_vocal_model else "")
@@ -136,33 +133,9 @@ def separate_vocal_from_audio(cache_folder_path: str,
                 separate_audio_with_audio_separator(audio_output_file_path, audio_separation_path,
                                                     None, lead_vocal_model, reuse_from=reuse)
             else:
-                separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device, shifts, seed)
+                separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
         else:
             log.info(f"{green_highlighted('cache')} reusing cached separated vocals")
 
     return audio_separation_path
 
-
-def dry_vocals(vocals_path: str, cache_folder_path: str, model_filename: str) -> str:
-    """De-reverberated copy of the separated vocals (extra layer for pitch/notes; cached)."""
-    import shutil
-    import tempfile
-    from audio_separator.separator import Separator
-
-    out_dir = os.path.join(cache_folder_path, f"dry_{os.path.splitext(model_filename)[0]}")
-    out = os.path.join(out_dir, "vocals.wav")
-    if check_file_exists(out):
-        return out
-    log.info(f"De-reverberating vocals with {blue_highlighted(model_filename)}")
-    os.makedirs(out_dir, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix="dry_")
-    sep = Separator(output_dir=tmp, model_file_dir=os.path.join(os.path.expanduser("~"), ".cache", "audio-separator"),
-                    output_format="WAV")
-    sep.load_model(model_filename=model_filename)
-    files = [os.path.join(tmp, f) if not os.path.isabs(f) else f for f in sep.separate(vocals_path)]
-    dry = next(f for f in files if "(noreverb)" in f.lower() or "(dry)" in f.lower())
-    shutil.move(dry, out)
-    shutil.rmtree(tmp, ignore_errors=True)
-    import gc
-    gc.collect()
-    return out

@@ -369,6 +369,9 @@ class Pipeline:
         if problems:
             raise ValueError("pipeline does not type-check:\n  " + "\n  ".join(problems))
         os.makedirs(ctx.cache_dir, exist_ok=True)
+        if "audio_seconds" not in ctx.extra and isinstance(store.get("audio.mix"), str):
+            from pipeline.runtimes import audio_seconds
+            ctx.extra["audio_seconds"] = audio_seconds(store["audio.mix"])
         lineage: dict[str, list] = store.setdefault("_lineage", {})
         for st in self.stages:
             args = {slot: store[art] for slot, art in st.input_names.items() if art in store}
@@ -401,12 +404,19 @@ class Pipeline:
                             f"reusing it. Recompute with --fresh {st.id} (or bump the stage's version).",
                             extra={"stage": st.id, "event": "stale_code"})
             else:
+                from pipeline import runtimes
+                from pipeline.log import peak_rss_mb
+                t0 = time.time()
                 with stage_scope(st.id, key, ctx.verbose):
                     result = st.run(ctx, **copy.deepcopy(args)) or {}
+                meta = {"created": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t0, 2),
+                        "peak_rss_mb": peak_rss_mb(), "device": ctx.device, "cpus": os.cpu_count(),
+                        "audio_seconds": ctx.extra.get("audio_seconds")}
+                runtimes.record({"stage": st.name, "step": st.id, "params": dataclasses.asdict(st.params),
+                                 "code": ctx.extra.get("code_version"), **meta})
                 if path:
                     _atomic_pickle(path, result)
-                    _atomic_json(path[:-4] + ".code.json", {"created": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                                            "files": code_dependencies(type(st))})
+                    _atomic_json(path[:-4] + ".meta.json", {**meta, "code": code_dependencies(type(st))})
             missing = set(st.outputs) - set(result)
             if missing:
                 raise RuntimeError(f"{st.id} did not return {sorted(missing)}")
@@ -443,10 +453,10 @@ def _atomic_json(path: str, obj) -> None:
 
 def _code_changed(pkl_path: str, current: dict[str, str]) -> list[str]:
     """Files whose content differs from when the cache entry was written (unknown = no warning)."""
-    side = pkl_path[:-4] + ".code.json"
+    side = pkl_path[:-4] + ".meta.json"
     try:
         with open(side, encoding="utf-8") as f:
-            then = json.load(f).get("files", {})
+            then = json.load(f).get("code", {})
     except (OSError, ValueError, AttributeError):
         return []
     return sorted(k for k in set(then) | set(current) if then.get(k) != current.get(k))

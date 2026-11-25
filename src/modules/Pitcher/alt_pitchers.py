@@ -52,35 +52,22 @@ def _rmvpe_decode(hidden: np.ndarray, threshold: float = 0.03) -> tuple[np.ndarr
     return f0, conf
 
 
-def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu", shifts: tuple[float, ...] = (0,)) -> PitchedData:
-    """RMVPE pitch. With several shifts (semitones), the audio is also pitch-shifted, each pass is
-    shifted back, and the per-frame median is taken (frames voiced in most passes)."""
+def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu") -> PitchedData:
+    """RMVPE pitch (10 ms frames). Pitch-shifted extra passes with median voting were tested and
+    rejected (worse in the pipeline), so there is one pass."""
     import onnxruntime as ort
     from huggingface_hub import hf_hub_download
 
-    log.info(f"Pitching with {blue_highlighted('RMVPE')}"
-          + (f" (pitch-shift passes {list(shifts)})" if tuple(shifts) != (0,) else ""))
+    log.info(f"Pitching with {blue_highlighted('RMVPE')}")
     model_path = hf_hub_download(RMVPE_REPO, RMVPE_FILE)
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
     session = ort.InferenceSession(model_path, providers=providers)
 
     y, _ = librosa.load(audio_path, sr=16000, mono=True)
-    passes = []
-    for shift in shifts:
-        ys = y if shift == 0 else librosa.effects.pitch_shift(y, sr=16000, n_steps=shift)
-        f0, conf = _rmvpe_pass(session, ys)
-        midi = np.where(f0 > 0, librosa.hz_to_midi(np.maximum(f0, 1e-3)) - shift, np.nan)
-        passes.append((midi, conf))
-    n = min(len(m) for m, _ in passes)
-    midi = np.vstack([m[:n] for m, _ in passes])
-    conf = np.median(np.vstack([c[:n] for _, c in passes]), axis=0)
-    voiced = np.sum(~np.isnan(midi), axis=0) * 2 > len(passes)
-    import warnings
-    with np.errstate(all="ignore"), warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns (unvoiced frames) are expected
-        med = np.nanmedian(midi, axis=0)
-    f0 = np.where(voiced, librosa.midi_to_hz(np.nan_to_num(med)), 0.0)
-    times = np.arange(n) * 0.01
+    f0, conf = _rmvpe_pass(session, y)
+    midi = np.where(f0 > 0, librosa.hz_to_midi(np.maximum(f0, 1e-3)), np.nan)
+    f0 = np.where(~np.isnan(midi), librosa.midi_to_hz(np.nan_to_num(midi)), 0.0)
+    times = np.arange(len(f0)) * 0.01
     return PitchedData(times.tolist(), f0.astype(float).tolist(), conf.astype(float).tolist())
 
 

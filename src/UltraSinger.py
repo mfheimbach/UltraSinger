@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--list", action="store_true", help="list stages and parameters")
     ap.add_argument("--check", action="store_true", help="validate the preset (with --set) and exit")
     ap.add_argument("--where", metavar="STEP", help="show every position where STEP could run, and exit")
+    ap.add_argument("--estimate", action="store_true",
+                    help="estimate the runtime for the input (from earlier runs on this machine) and exit")
     ap.add_argument("--version", action="version", version=f"UltraSinger-ng {APP_VERSION}")
     return ap
 
@@ -123,6 +125,18 @@ def main(argv: list[str] | None = None) -> int:
     if not args.input:
         build_parser().print_help()
         return 1
+
+    if args.estimate:
+        from pipeline import runtimes
+        secs = runtimes.audio_seconds(args.input)
+        if not secs:
+            log.error("can't read the input's duration (estimates need a local audio/video file)")
+            return 1
+        rows, total = runtimes.estimate(pipeline.stages, secs, "cpu" if args.cpu else pick_device(False))
+        for sid, est, n in rows:
+            print(f"{sid:28s} {'?' if est is None else f'{est:7.1f}s'}  ({n} earlier runs)")
+        print(f"{'total':28s} {total:7.1f}s  for {secs:.0f} s of audio")
+        return 0
 
     log.info(f"UltraSinger-ng {APP_VERSION} - preset '{preset.get('name')}'")
     check_ffmpeg(args.ffmpeg)
