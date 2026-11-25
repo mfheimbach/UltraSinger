@@ -1,13 +1,16 @@
-"""Run UltraSinger on one song, offline and with a persistent cache.
+"""Run a pipeline preset on one ground-truth song, offline and with a persistent cache.
 
-Called by run_eval.py in a fresh subprocess per song, because UltraSinger
-keeps its settings in module-level state.
+Called by run_eval.py in a fresh subprocess per song (keeps memory bounded) and imported by
+batch_eval.py (one process, many configs).
 
-    python eval/run_song.py --mode full --gt song.txt --out OUT --cache CACHE [--set key=value ...]
+    python eval/run_song.py --gt song.txt --out OUT --cache CACHE --preset bench [--set step.param=value ...]
 
 Modes
-  full     audio in, UltraStar txt out (the normal pipeline)
-  repitch  ground-truth txt in, only the pitches are re-detected
+  full     audio in, UltraStar txt out (the preset as given)
+  repitch  the chart's syllables and timing, only the pitches detected (preset 'repitch')
+Options
+  --gt-language    take the language from the chart (short windows break Whisper's detection)
+  --oracle-lyrics  align the chart's words instead of transcribing (preset 'oracle_lyrics')
 """
 
 from __future__ import annotations
@@ -16,7 +19,6 @@ import argparse
 import json
 import os
 import sys
-from enum import Enum
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(os.path.dirname(HERE), "src")
@@ -25,31 +27,9 @@ sys.path.insert(0, HERE)
 
 import usdx  # noqa: E402
 
-
-def _coerce(current, raw: str):
-    if isinstance(current, Enum):
-        return type(current)(raw)
-    if isinstance(current, bool):
-        return raw.lower() in ("1", "true", "yes", "on")
-    if isinstance(current, int) and not isinstance(current, bool):
-        return int(raw)
-    if isinstance(current, float):
-        return float(raw)
-    if raw.lower() in ("none", "null"):
-        return None
-    return raw
-
-
-def apply_overrides(settings, overrides: list[str]) -> None:
-    for item in overrides:
-        key, raw = item.split("=", 1)
-        if not hasattr(settings, key):
-            raise SystemExit(f"Unknown setting: {key}")
-        setattr(settings, key, _coerce(getattr(settings, key), raw))
-
-
 LANG_ALIASES = {"englisch": "en", "deutsch": "de", "german": "de", "english": "en", "spanisch": "es",
                 "französisch": "fr", "italienisch": "it"}
+LANGUAGE_STEPS = ("transcribe.whisper", "transcribe.qwen3", "words.align_text")
 
 
 def language_code(name: str) -> str:
@@ -65,92 +45,34 @@ def language_code(name: str) -> str:
         return "en"
 
 
-def share_separation_cache(cache: str, gt: usdx.Song) -> None:
-    """Demucs output is cached under the input file's basename, which differs
-    between modes (full copies the audio as 'Artist - Title.ext', repitch reads
-    it in place). Alias the two so separation runs once per song."""
-    names = {os.path.splitext(os.path.basename(gt.audio_path()))[0], f"{gt.artist} - {gt.title}"}
-    root = os.path.join(cache, "separated")
-    if not os.path.isdir(root):
-        return
-    for model in os.listdir(root):
-        mdir = os.path.join(root, model)
-        existing = [n for n in names if os.path.isdir(os.path.join(mdir, n))]
-        if not existing:
-            continue
-        for n in names - set(existing):
-            os.symlink(existing[0], os.path.join(mdir, n))
+def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: list[str],
+               gt_language: bool = False, verbose: bool = False, cache_by: str = "lineage",
+               mode: str = "full", gt_path: str | None = None, oracle_lyrics: bool = False) -> str:
+    """Run a preset on the chart's audio. Returns the written txt (also recorded in run_info.json)."""
+    import yaml
+    from pipeline.run import preset_path, run_song
 
-
-def run_configured(us, gt: "usdx.Song", gt_path: str, mode: str, out: str, cache: str,
-                   overrides: list[str], oracle_lyrics: bool = False) -> str:
-    """Configure UltraSinger's module-level settings for one song and run it.
-    Resets settings first, so it can be called repeatedly in one process."""
-    from modules.musicbrainz_client import SongInfo
-    from modules.Ultrastar.ultrastar_txt import FormatVersion
-
-    # Offline + no side quests: no MusicBrainz lookups, no sheet music, no support banner
-    us.search_musicbrainz = lambda title, artist: SongInfo(title=gt.title, artist=gt.artist)
-    us.create_sheet = lambda *a, **k: None
-    us.print_support = lambda *a, **k: None
-
-    s = us.settings
-    s.__dict__.clear()  # back to the class defaults
-    s.output_folder_path = os.path.abspath(out)
-    s.cache_override_path = os.path.abspath(cache)
-    s.keep_cache = True
-    s.create_midi = False
-    s.create_plot = False
-    s.calculate_score = False
-    s.interactive_mode = False
-
-    if mode == "full":
-        # language detection is part of what we evaluate; pin it with --set language=xx
-        s.input_file_path = os.path.abspath(gt.audio_path())
-    else:
-        s.input_file_path = os.path.abspath(gt_path)
-        # re-pitch never needs instrumental/vocal stems written next to the output
-        s.format_version = FormatVersion.V1_0_0
-        s.create_karaoke = False
-
+    if mode == "repitch":
+        preset = "repitch"
     if oracle_lyrics:
-        lyrics_path = os.path.join(os.path.abspath(cache), "oracle_lyrics.txt")
-        os.makedirs(os.path.dirname(lyrics_path), exist_ok=True)
-        with open(lyrics_path, "w", encoding="utf-8") as f:
-            f.write(" ".join(gt.words()))
-        s.lyrics_file = lyrics_path
-        s.language = language_code(gt.language)
-
-    # pseudo-setting: take the language from the chart (short windows make Whisper's language
-    # detection unreliable; on full songs the pipeline detects it itself)
-    if "gt_language=true" in overrides:
-        overrides = [o for o in overrides if o != "gt_language=true"]
-        s.language = language_code(gt.language)
-    apply_overrides(s, overrides)
-    # Intermediate audio (denoised/mono/muted) and the transcription cache are not keyed
-    # by separation model, so non-default models get their own cache folder.
-    if s.separator_model:
-        tag = os.path.splitext(s.separator_model)[0] + (f"+{os.path.splitext(s.lead_vocal_model)[0]}" if s.lead_vocal_model else "")
-        s.cache_override_path = os.path.join(s.cache_override_path, f"sep_{tag}")
-    elif s.demucs_model.value != "htdemucs" or s.lead_vocal_model:
-        tag = s.demucs_model.value + (f"+{os.path.splitext(s.lead_vocal_model)[0]}" if s.lead_vocal_model else "")
-        s.cache_override_path = os.path.join(s.cache_override_path, f"demucs_{tag}")
-    os.makedirs(s.output_folder_path, exist_ok=True)
-    os.makedirs(s.cache_override_path, exist_ok=True)
-    share_separation_cache(s.cache_override_path, gt)
-
-    us.check_requirements()
-    txt_path, _simple, _accurate = us.run()
-
-    # the eval only needs the txt; drop audio/video copies UltraSinger writes next to it
-    for root, _dirs, files in os.walk(out):
-        for name in files:
-            if name.lower().endswith((".ogg", ".m4a", ".mp3", ".wav", ".mp4", ".flac", ".jpg", ".png")):
-                os.remove(os.path.join(root, name))
-
+        preset = "oracle_lyrics"
+    with open(preset_path(preset), encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+    steps = {s.get("id") or s["use"] for s in spec["steps"]}
+    overrides = [o for o in overrides if o != "gt_language=true"]
+    if gt_language or oracle_lyrics:
+        code = language_code(gt.language)
+        overrides += [f"{s}.language={code}" for s in LANGUAGE_STEPS if s in steps]
+    extra = {"lyrics.text": " ".join(gt.words())} if oracle_lyrics else None
+    store = run_song(os.path.abspath(gt.audio_path()), spec, overrides, os.path.abspath(out),
+                     os.path.abspath(cache), "cpu", gt.artist, gt.title, copy_audio=False, verbose=verbose,
+                     cache_by=cache_by, chart=os.path.abspath(gt_path) if mode == "repitch" else None,
+                     extra=extra)
+    txt = store["file.txt"]
     with open(os.path.join(out, "run_info.json"), "w", encoding="utf-8") as f:
-        json.dump({"txt": os.path.abspath(txt_path), "mode": mode, "overrides": overrides}, f, indent=2)
-    return txt_path
+        json.dump({"txt": os.path.abspath(txt), "mode": mode, "preset": spec.get("name"),
+                   "overrides": overrides}, f, indent=2)
+    return txt
 
 
 def main() -> None:
@@ -159,40 +81,16 @@ def main() -> None:
     ap.add_argument("--gt", required=True, help="ground-truth UltraStar txt (metadata + audio reference)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache", required=True)
-    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
-    ap.add_argument("--oracle-lyrics", action="store_true",
-                    help="align the chart's own lyrics (no timing) instead of transcribing: upper bound for lyrics lookup")
+    ap.add_argument("--preset", default="best")
+    ap.add_argument("--set", action="append", default=[], metavar="STEP.PARAM=VALUE")
+    ap.add_argument("--gt-language", action="store_true")
+    ap.add_argument("--oracle-lyrics", action="store_true")
+    ap.add_argument("--cache-by", choices=["lineage", "content"], default="lineage")
     args = ap.parse_args()
-
-    import UltraSinger as us
-    run_configured(us, usdx.read(args.gt), args.gt, args.mode, args.out, args.cache, args.set, args.oracle_lyrics)
+    run_preset(usdx.read(args.gt), args.out, args.cache, args.preset, args.set,
+               gt_language=args.gt_language or "gt_language=true" in args.set, verbose=True,
+               cache_by=args.cache_by, mode=args.mode, gt_path=args.gt, oracle_lyrics=args.oracle_lyrics)
 
 
 if __name__ == "__main__":
     main()
-
-
-def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: list[str],
-               gt_language: bool = False, verbose: bool = False, cache_by: str = "lineage") -> str:
-    """Run a pipeline preset (src/pipeline) on the chart's audio. Overrides are 'step.param=value'.
-    Cache: the old per-separator layout (<cache>/demucs_<model>/ for models other than htdemucs),
-    so existing separations and transcriptions are reused. Returns the written txt."""
-    from pipeline.core import load_preset
-    from pipeline.run import run_song
-
-    overrides = list(overrides)
-    if gt_language:
-        overrides.append(f"transcribe.whisper.language={language_code(gt.language)}")
-    pipe = load_preset(preset, overrides)
-    sep = next((s for s in pipe.stages if s.name == "separate"), None)
-    sub = ""
-    if sep is not None:
-        p = sep.params
-        if p.separator_model:
-            sub = f"sep_{os.path.splitext(p.separator_model)[0]}" + (f"+{os.path.splitext(p.second_pass)[0]}" if p.second_pass else "")
-        elif p.model != "htdemucs" or p.second_pass:
-            sub = f"demucs_{p.model}" + (f"+{os.path.splitext(p.second_pass)[0]}" if p.second_pass else "")
-    cache_dir = os.path.join(os.path.abspath(cache), sub) if sub else os.path.abspath(cache)
-    store = run_song(os.path.abspath(gt.audio_path()), preset, overrides, os.path.abspath(out), cache_dir,
-                     "cpu", gt.artist, gt.title, copy_audio=False, verbose=verbose, cache_by=cache_by)
-    return store["file.txt"]

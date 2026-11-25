@@ -1,18 +1,20 @@
 """Silence processing module"""
+
+import logging
 import librosa
 import soundfile as sf
 
 from pydub import AudioSegment, silence
 
-from modules.console_colors import ULTRASINGER_HEAD
 from modules.Speech_Recognition.TranscribedData import TranscribedData
+
+log = logging.getLogger("ultrasinger.silence_processing")
 
 def remove_silence_from_transcription_data(audio_path: str, transcribed_data: list[TranscribedData]) -> list[
     TranscribedData]:
     """Remove silence from given transcription data"""
 
-    print(
-        f"{ULTRASINGER_HEAD} Removing silent parts from transcription data"
+    log.info("Removing silent parts from transcription data"
     )
 
     silence_timestamps = get_silence_sections(audio_path)
@@ -126,8 +128,7 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
 
 
 def mute_no_singing_parts(mono_output_path, mute_output_path):
-    print(
-        f"{ULTRASINGER_HEAD} Mute audio parts with no singing"
+    log.info("Mute audio parts with no singing"
     )
     silence_sections = get_silence_sections(mono_output_path)
     y, sr = librosa.load(mono_output_path, sr=None)

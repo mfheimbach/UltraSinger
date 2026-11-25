@@ -23,3 +23,4 @@ steps:
   - use: notes.line_breaks
   - use: write.ultrastar
     params: {stems: false}
+  - use: write.conventions

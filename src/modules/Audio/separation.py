@@ -1,15 +1,15 @@
 """Separate vocals from audio"""
+
+import logging
 import os
 from enum import Enum
 
 import demucs.separate
 
-from modules.console_colors import (
-    ULTRASINGER_HEAD,
-    blue_highlighted,
-    red_highlighted, green_highlighted,
-)
+from modules.console_colors import blue_highlighted, red_highlighted, green_highlighted
 from modules.os_helper import check_file_exists
+
+log = logging.getLogger("ultrasinger.separation")
 
 class DemucsModel(Enum):
     HTDEMUCS = "htdemucs"           # first version of Hybrid Transformer Demucs. Trained on MusDB + 800 songs. Default model.
@@ -25,10 +25,12 @@ class DemucsModel(Enum):
 def separate_audio(input_file_path: str, output_folder: str, model: DemucsModel, device="cpu") -> None:
     """Separate vocals from audio with demucs."""
 
-    print(
-        f"{ULTRASINGER_HEAD} Separating vocals from audio with {blue_highlighted('demucs')} with model {blue_highlighted(model.value)} and {red_highlighted(device)} as worker."
+    log.info(f"Separating vocals from audio with {blue_highlighted('demucs')} with model {blue_highlighted(model.value)} and {red_highlighted(device)} as worker."
     )
 
+    # demucs shifts the input by a random offset (shifts=1): seed it, or every run differs
+    import random
+    random.seed(0)
     demucs.separate.main(
         [
             "--two-stems", "vocals",
@@ -55,7 +57,7 @@ def separate_audio_with_audio_separator(input_file_path: str, output_path: str, 
     tmp = tempfile.mkdtemp(prefix="sep_")
 
     def run(model: str, src: str) -> tuple[str, str]:
-        print(f"{ULTRASINGER_HEAD} Separating with {blue_highlighted('audio-separator')} model {blue_highlighted(model)}")
+        log.info(f"Separating with {blue_highlighted('audio-separator')} model {blue_highlighted(model)}")
         sep = Separator(output_dir=tmp, model_file_dir=model_dir, output_format="WAV",
                         mdxc_params={"segment_size": 256, "override_model_segment_size": False,
                                      "batch_size": 1, "overlap": overlap, "pitch_shift": 0})
@@ -68,7 +70,7 @@ def separate_audio_with_audio_separator(input_file_path: str, output_path: str, 
 
     if reuse_from and os.path.exists(os.path.join(reuse_from, "vocals.wav")):
         # first pass already done (e.g. by a run without the lead-vocal pass)
-        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing first-pass separation from {reuse_from}")
+        log.info(f"{green_highlighted('cache')} reusing first-pass separation from {reuse_from}")
         vocals = os.path.join(tmp, "first_vocals.wav")
         instrumental = os.path.join(tmp, "first_no_vocals.wav")
         shutil.copy(os.path.join(reuse_from, "vocals.wav"), vocals)
@@ -131,7 +133,7 @@ def separate_vocal_from_audio(cache_folder_path: str,
             else:
                 separate_audio(audio_output_file_path, cache_folder_path, model, pytorch_device)
         else:
-            print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached separated vocals")
+            log.info(f"{green_highlighted('cache')} reusing cached separated vocals")
 
     return audio_separation_path
 
@@ -146,7 +148,7 @@ def dry_vocals(vocals_path: str, cache_folder_path: str, model_filename: str) ->
     out = os.path.join(out_dir, "vocals.wav")
     if check_file_exists(out):
         return out
-    print(f"{ULTRASINGER_HEAD} De-reverberating vocals with {blue_highlighted(model_filename)}")
+    log.info(f"De-reverberating vocals with {blue_highlighted(model_filename)}")
     os.makedirs(out_dir, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix="dry_")
     sep = Separator(output_dir=tmp, model_file_dir=os.path.join(os.path.expanduser("~"), ".cache", "audio-separator"),

@@ -1,13 +1,13 @@
 """Evaluate UltraSinger on a folder of ground-truth songs.
 
-    python eval/run_eval.py --songs DATA/songs --name baseline [--mode full|repitch] [--set key=value ...]
+    python eval/run_eval.py --songs DATA/songs --name baseline --preset best [--mode full|repitch] [--set step.param=value ...]
 
 DATA/songs contains one folder per song, each with an UltraStar txt and
 the audio it references (the layout USDB Syncer produces).
 
 Outputs (under --work, default ./eval_work, git-ignored):
-  cache/<song>/          separation, transcription and pitch caches, shared by all runs
-  runs/<name>/<song>/    UltraSinger output + run.log
+  cache/<song>/          pipeline stage caches, shared by all runs
+  runs/<name>/<song>/    chart, run_log.jsonl, lineage.json + run.log
   runs/<name>/metrics.csv
   runs/<name>/summary.md
 
@@ -72,12 +72,12 @@ def discover(songs_dir: str, only: list[str] | None, exclude: list[str] | None =
     return out
 
 
-def run_one(mode, name, txt, run_dir, cache_dir, overrides, timeout, extra=()) -> tuple[bool, float]:
+def run_one(mode, name, txt, run_dir, cache_dir, overrides, timeout, extra=(), preset="best") -> tuple[bool, float]:
     out = os.path.join(run_dir, slug(name))
-    shutil.rmtree(out, ignore_errors=True)  # UltraSinger appends (1), (2) to existing folders
+    shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     cmd = [sys.executable, os.path.join(HERE, "run_song.py"), "--mode", mode, "--gt", txt,
-           "--out", out, "--cache", os.path.join(cache_dir, slug(name))]
+           "--out", out, "--cache", os.path.join(cache_dir, slug(name)), "--preset", preset]
     for o in overrides:
         cmd += ["--set", o]
     cmd += list(extra)
@@ -147,7 +147,10 @@ def main() -> None:
     ap.add_argument("--name", required=True, help="run name, e.g. baseline or swiftf0_fmax800")
     ap.add_argument("--mode", choices=["full", "repitch"], default="full")
     ap.add_argument("--work", default=os.path.join(os.path.dirname(HERE), "eval_work"))
-    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="UltraSinger Settings override")
+    ap.add_argument("--preset", default="best", help="pipeline preset (presets/*.yaml)")
+    ap.add_argument("--set", action="append", default=[], metavar="STEP.PARAM=VALUE",
+                    help="preset override, or -step to drop a step")
+    ap.add_argument("--gt-language", action="store_true", help="take the language from the chart")
     ap.add_argument("--only", nargs="*", help="substring filter on song folder names")
     ap.add_argument("--exclude", nargs="*", help="substring filter of songs to leave out")
     ap.add_argument("--oracle-lyrics", action="store_true", help="align the chart's lyrics instead of transcribing")
@@ -164,7 +167,8 @@ def main() -> None:
         config = json.load(open(config_path))  # keep the settings the run was made with
         args.mode = config.get("mode", args.mode)
     else:
-        config = {"name": args.name, "mode": args.mode, "overrides": args.set, "oracle_lyrics": args.oracle_lyrics}
+        config = {"name": args.name, "mode": args.mode, "preset": args.preset, "overrides": args.set,
+                  "gt_language": args.gt_language, "oracle_lyrics": args.oracle_lyrics}
         json.dump(config, open(config_path, "w"), indent=2)
 
     songs = discover(args.songs, args.only, args.exclude)
@@ -172,8 +176,8 @@ def main() -> None:
     rows = []
     for i, (name, txt) in enumerate(songs, 1):
         if not args.score_only:
-            extra = ["--oracle-lyrics"] if args.oracle_lyrics else []
-            ok, dt = run_one(args.mode, name, txt, run_dir, cache_dir, args.set, args.timeout, extra)
+            extra = (["--oracle-lyrics"] if args.oracle_lyrics else []) + (["--gt-language"] if args.gt_language else [])
+            ok, dt = run_one(args.mode, name, txt, run_dir, cache_dir, args.set, args.timeout, extra, args.preset)
             print(f"[{i}/{len(songs)}] {name}: {'ok' if ok else 'FAILED'} in {dt:.0f}s")
         try:
             row = score_one(args.mode, name, txt, run_dir)

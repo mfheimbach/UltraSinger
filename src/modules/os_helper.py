@@ -1,14 +1,18 @@
 """OS helper functions."""
 
+import logging
+
 import os
 import shutil
 
-from modules.console_colors import ULTRASINGER_HEAD, red_highlighted
+from modules.console_colors import red_highlighted
+
+log = logging.getLogger("ultrasinger.os_helper")
 
 
 def create_folder(folder_name: str) -> None:
     """Creates a folder if it doesn't exist."""
-    print(f"{ULTRASINGER_HEAD} Creating output folder. -> {folder_name}")
+    log.info(f"Creating output folder. -> {folder_name}")
     is_exist = os.path.exists(folder_name)
     if not is_exist:
         os.makedirs(folder_name)
@@ -80,8 +84,7 @@ def get_unused_song_output_dir(path: str) -> str:
         path = path.replace(f"({i - 1})", f"({i})")
         i += 1
         if i > 999:
-            print(
-                f"{ULTRASINGER_HEAD} {red_highlighted('Error: Could not create output folder! (999) is the maximum number of tries.')}"
+            log.warning(f"{red_highlighted('Error: Could not create output folder! (999) is the maximum number of tries.')}"
             )
             raise ValueError("Could not create output folder! (999) is the maximum number of tries.")
     return path

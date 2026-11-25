@@ -1,3 +1,4 @@
+import logging
 import librosa
 import pretty_midi
 
@@ -5,7 +6,8 @@ from modules.Midi.MidiSegment import MidiSegment
 from modules.Ultrastar.coverter.ultrastar_converter import midi_note_to_ultrastar_note, ultrastar_note_to_midi_note, \
     get_start_time_from_ultrastar, get_end_time_from_ultrastar
 from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue
-from modules.console_colors import ULTRASINGER_HEAD
+
+log = logging.getLogger("ultrasinger.ultrastar_midi_converter")
 
 
 def convert_midi_note_to_ultrastar_note(midi_segment: MidiSegment) -> int:
@@ -20,7 +22,7 @@ def convert_ultrastar_to_midi_instrument(ultrastar_class: UltrastarTxtValue) -> 
     """Converts an Ultrastar data to a midi instrument"""
     # Todo: delete?
 
-    print(f"{ULTRASINGER_HEAD} Creating midi instrument from Ultrastar txt")
+    log.info("Creating midi instrument from Ultrastar txt")
 
     instrument = pretty_midi.Instrument(program=0, name="Vocals")
     velocity = 100
@@ -34,7 +36,7 @@ def convert_ultrastar_to_midi_instrument(ultrastar_class: UltrastarTxtValue) -> 
 
 def convert_midi_notes_to_ultrastar_notes(midi_segments: list[MidiSegment]) -> list[int]:
     """Convert midi notes to ultrastar notes"""
-    print(f"{ULTRASINGER_HEAD} Creating Ultrastar notes from midi data")
+    log.info("Creating Ultrastar notes from midi data")
 
     ultrastar_note_numbers = []
     for i, midi_segment in enumerate(midi_segments):

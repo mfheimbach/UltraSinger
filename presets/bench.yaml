@@ -21,3 +21,4 @@ steps:
   - use: notes.calibrate
   - use: write.ultrastar
     params: {stems: false}
+  - use: write.conventions

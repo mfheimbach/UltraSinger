@@ -1,15 +1,19 @@
 """Transcription with Qwen3-ASR + Qwen3-ForcedAligner (word timestamps).
 
 Optional backend: needs `pip install qwen-asr`. Selected with
-`--transcriber qwen3` / Settings.transcriber = "qwen3".
+stage transcribe.qwen3 (e.g. --set in a preset).
 """
 
+
+import logging
 import langcodes
 import torch
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted, red_highlighted
+from modules.console_colors import blue_highlighted, red_highlighted
 from modules.Speech_Recognition.TranscribedData import TranscribedData
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
+
+log = logging.getLogger("ultrasinger.qwen3asr")
 
 
 def _language_name(code: str | None) -> str | None:
@@ -75,7 +79,7 @@ def transcribe_with_qwen3(
     import gc
     from qwen_asr import Qwen3ASRModel, Qwen3ForcedAligner
 
-    print(f"{ULTRASINGER_HEAD} Loading {blue_highlighted('Qwen3-ASR')} {blue_highlighted(model_name)} "
+    log.info(f"Loading {blue_highlighted('Qwen3-ASR')} {blue_highlighted(model_name)} "
           f"with aligner {blue_highlighted(aligner_name)} and {red_highlighted(device)} as worker")
 
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
@@ -88,7 +92,7 @@ def transcribe_with_qwen3(
     y, sr = librosa.load(audio_path, sr=16000, mono=True)
     n_chunks = int((len(y) / sr) // MAX_ALIGN_SECONDS) + 1
     bounds = [(k * len(y) // n_chunks, (k + 1) * len(y) // n_chunks) for k in range(n_chunks)]
-    print(f"{ULTRASINGER_HEAD} Transcribing {audio_path} in {n_chunks} chunk(s)")
+    log.info(f"Transcribing {audio_path} in {n_chunks} chunk(s)")
     chunk_results = [model.transcribe(audio=(y[a:b], sr), language=_language_name(language))[0] for a, b in bounds]
     languages = [r.language for r in chunk_results if r.language]
     result = type("R", (), {"language": max(set(languages), key=languages.count) if languages else ""})
@@ -98,7 +102,7 @@ def transcribe_with_qwen3(
         torch.cuda.empty_cache()
 
     detected = _language_code(result.language)
-    print(f"{ULTRASINGER_HEAD} Qwen3 detected language: {blue_highlighted(result.language or '?')}")
+    log.info(f"Qwen3 detected language: {blue_highlighted(result.language or '?')}")
 
     aligner = Qwen3ForcedAligner.from_pretrained(aligner_name, dtype=dtype, device_map=device_map)
     aligned = []
@@ -140,7 +144,7 @@ def align_lyrics_with_qwen3(
     Note: the aligner takes at most 180 s of audio per call."""
     from qwen_asr import Qwen3ForcedAligner
 
-    print(f"{ULTRASINGER_HEAD} Aligning known lyrics with {blue_highlighted(aligner_name)} ({language})")
+    log.info(f"Aligning known lyrics with {blue_highlighted(aligner_name)} ({language})")
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     aligner = Qwen3ForcedAligner.from_pretrained(aligner_name, dtype=dtype,
                                                  device_map="cuda:0" if device == "cuda" else "cpu")

@@ -1,11 +1,13 @@
 """Key detection and pitch quantization to musical scale"""
 
+
+import logging
 import librosa
 import numpy as np
 
-from modules.console_colors import (
-    ULTRASINGER_HEAD,
-blue_highlighted)
+from modules.console_colors import blue_highlighted
+
+log = logging.getLogger("ultrasinger.key_detector")
 
 # scales (in semitones relative to root note)
 MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11]
@@ -23,7 +25,7 @@ def detect_key_from_audio(audio_path: str) -> tuple[str, str]:
     Returns:
         Tuple of (key_note, mode) e.g., ('C', 'major') or ('A', 'minor')
     """
-    print(f"{ULTRASINGER_HEAD} Detecting musical key")
+    log.info("Detecting musical key")
 
     y, sr = librosa.load(audio_path, sr=None, duration=60.0)  # Analyze first 60 seconds
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -57,7 +59,7 @@ def detect_key_from_audio(audio_path: str) -> tuple[str, str]:
             best_key = NOTE_NAMES[shift]
             best_mode = 'minor'
 
-    print(f"{ULTRASINGER_HEAD} Detected key: {blue_highlighted(best_key)} {blue_highlighted(best_mode)}")
+    log.info(f"Detected key: {blue_highlighted(best_key)} {blue_highlighted(best_mode)}")
     return best_key, best_mode
 
 
@@ -165,5 +167,5 @@ def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float =
             except:
                 continue
 
-    #print(f"{ULTRASINGER_HEAD} Moved {blue_highlighted(note)} to {blue_highlighted(best_note)}")
+    #log.info(f"Moved {blue_highlighted(note)} to {blue_highlighted(best_note)}")
     return best_note

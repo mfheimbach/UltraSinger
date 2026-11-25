@@ -5,16 +5,20 @@ that never cross the given syllable boundaries ("align" mode). Each syllable is 
 split into its voiced notes.
 
 Models: https://github.com/openvpi/GAME/releases (ONNX zips; unpack and point
-Settings.game_model_dir at the folder with config.json). Model license: CC BY-NC-SA 4.0.
+segment.game.model_dir at the folder with config.json). Model license: CC BY-NC-SA 4.0.
 """
 
+
+import logging
 import json
 import os
 
 import librosa
 import numpy as np
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
+from modules.console_colors import blue_highlighted
+
+log = logging.getLogger("ultrasinger.game_segmenter")
 
 MAX_CHUNK_SECONDS = 30.0  # default; attention cost grows with length, long audio is split at syllable gaps
 
@@ -87,7 +91,7 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
                             device: str = "cpu", boundary_threshold: float = 0.2, steps: int = 8,
                             chunk_seconds: float = MAX_CHUNK_SECONDS):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
-    print(f"{ULTRASINGER_HEAD} Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
+    log.info(f"Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
     model = GameModel(model_dir, device)
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr

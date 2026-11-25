@@ -1,5 +1,7 @@
 """YouTube Downloader"""
 
+import logging
+
 import os
 import yt_dlp
 
@@ -7,10 +9,11 @@ from modules.os_helper import sanitize_filename, get_unused_song_output_dir
 from modules import os_helper
 from modules.ProcessData import MediaInfo
 from modules.Audio.bpm import get_bpm_from_file
-from modules.console_colors import ULTRASINGER_HEAD
 from modules.Image.image_helper import save_image
 from modules.musicbrainz_client import search_musicbrainz
 from modules.ffmpeg_helper import separate_audio_video
+
+log = logging.getLogger("ultrasinger.youtube")
 
 
 def get_youtube_title(url: str, cookiefile: str = None) -> tuple[str, str]:
@@ -34,7 +37,7 @@ def get_youtube_title(url: str, cookiefile: str = None) -> tuple[str, str]:
 def __download_youtube_video_with_audio(url: str, clear_filename: str, output_path: str, cookiefile: str = None) -> str:
     """Download video with audio from YouTube and return the file extension"""
 
-    print(f"{ULTRASINGER_HEAD} Downloading Video with Audio")
+    log.info("Downloading Video with Audio")
     ydl_opts = {
         "format": "bestvideo[ext=mp4]+bestaudio/best",
         "outtmpl": output_path + "/" + clear_filename + ".%(ext)s",
@@ -48,7 +51,7 @@ def __download_youtube_video_with_audio(url: str, clear_filename: str, output_pa
 def __download_youtube_thumbnail(url: str, clear_filename: str, output_path: str, cookiefile: str = None) -> str:
     """Download thumbnail from YouTube"""
 
-    print(f"{ULTRASINGER_HEAD} Downloading thumbnail")
+    log.info("Downloading thumbnail")
     ydl_opts = {
         "skip_download": True,
         "writethumbnail": True,
@@ -97,7 +100,7 @@ def download_from_youtube(input_url: str, output_folder_path: str, cookiefile: s
     song_output = get_unused_song_output_dir(song_output)
     os_helper.create_folder(song_output)
 
-    print(f"{ULTRASINGER_HEAD} Downloading from YouTube")
+    log.info("Downloading from YouTube")
     video_ext = __download_youtube_video_with_audio(
         input_url, basename_without_ext, song_output, cookiefile
     )

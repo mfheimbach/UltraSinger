@@ -182,6 +182,7 @@ def _norm_words(words: list[str]) -> str:
     out = []
     for w in words:
         w = unicodedata.normalize("NFC", w.lower())
+        w = re.sub(r"[’‘´`]", "'", w)  # typographic apostrophes (SingStar/Syncer charts) = ASCII
         w = re.sub(r"[^\w']", "", w).strip("'")
         if w:
             out.append(w)

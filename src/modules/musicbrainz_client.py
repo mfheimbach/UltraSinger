@@ -1,3 +1,4 @@
+import logging
 import musicbrainzngs
 import string
 import time
@@ -5,9 +6,11 @@ from urllib.error import URLError
 from Levenshtein import ratio
 from dataclasses import dataclass
 from typing import Optional
-from Settings import Settings
+from version import APP_VERSION
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted, red_highlighted
+from modules.console_colors import blue_highlighted, red_highlighted
+
+log = logging.getLogger("ultrasinger.musicbrainz_client")
 
 
 @dataclass
@@ -47,7 +50,7 @@ def search_musicbrainz(title: str, artist) -> SongInfo:
     # Musicbrainz API documentation
     # https://python-musicbrainzngs.readthedocs.io/en/latest/api/
 
-    musicbrainzngs.set_useragent("UltraSinger", Settings.APP_VERSION, "https://github.com/rakuri255/UltraSinger")
+    musicbrainzngs.set_useragent("UltraSinger", APP_VERSION, "https://github.com/rakuri255/UltraSinger")
 
     # remove from search_string "official video"
     # todo: do we need filter?
@@ -63,13 +66,12 @@ def search_musicbrainz(title: str, artist) -> SongInfo:
         recording = __multi_line_search(artist, title)
 
     if recording is None:
-        print(f"{ULTRASINGER_HEAD} {red_highlighted('No match found')}")
+        log.info(f"{red_highlighted('No match found')}")
         return SongInfo(title=origin_title, artist="Unknown Artist")
 
     artist = recording['artist-credit-phrase']
     title = recording['title']
-    print(
-        f"{ULTRASINGER_HEAD} Found data on Musicbrainz: Artist={blue_highlighted(artist)} Title={blue_highlighted(title)}")
+    log.info(f"Found data on Musicbrainz: Artist={blue_highlighted(artist)} Title={blue_highlighted(title)}")
 
     year = __get_year(recording)
     genres = __get_genres(recording)
@@ -196,7 +198,7 @@ def __get_image(recording) -> (bytes, str):
             except musicbrainzngs.ResponseError:
                 continue
     if image_data is not None:
-        print(f"{ULTRASINGER_HEAD} Found cover image")
+        log.info("Found cover image")
 
     return image_data, image_url
 
@@ -220,7 +222,7 @@ def __get_year(recording):
     year = year.split('-')[0]
 
     if year is not None:
-        print(f"{ULTRASINGER_HEAD} Found year: {blue_highlighted(year)}")
+        log.info(f"Found year: {blue_highlighted(year)}")
 
     return year
 
@@ -233,5 +235,5 @@ def __get_genres(recording) -> str:
         for tag in recording['tag-list']:
             genres += f"{tag['name'].strip()},"
     if genres is not None:
-        print(f"{ULTRASINGER_HEAD} Found genres: {blue_highlighted(genres)}")
+        log.info(f"Found genres: {blue_highlighted(genres)}")
     return genres

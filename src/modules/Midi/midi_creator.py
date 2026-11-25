@@ -1,5 +1,7 @@
 """Midi creator module"""
 
+
+import logging
 import math
 import os
 from collections import Counter
@@ -11,14 +13,14 @@ import unidecode
 
 from modules.Midi.MidiSegment import MidiSegment
 from modules.Speech_Recognition.TranscribedData import TranscribedData
-from modules.console_colors import (
-    ULTRASINGER_HEAD, blue_highlighted,
-)
+from modules.console_colors import blue_highlighted
 from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Pitcher.pitched_data_helper import get_frequencies_with_high_confidence
 from modules.Audio.key_detector import quantize_note_to_key
 from dataclasses import dataclass
+
+log = logging.getLogger("ultrasinger.midi_creator")
 
 
 @dataclass
@@ -78,7 +80,7 @@ def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: flo
 def create_midi_instrument(midi_segments: list[MidiSegment]) -> object:
     """Converts an Ultrastar data to a midi instrument"""
 
-    print(f"{ULTRASINGER_HEAD} Creating midi instrument")
+    log.info("Creating midi instrument")
 
     instrument = pretty_midi.Instrument(program=0, name="Vocals")
     velocity = 100
@@ -99,7 +101,7 @@ def sanitize_for_midi(text):
 def __create_midi(instruments: list[object], bpm: float, midi_output: str, midi_segments: list[MidiSegment]) -> None:
     """Write instruments to midi file"""
 
-    print(f"{ULTRASINGER_HEAD} Creating midi file -> {midi_output}")
+    log.info(f"Creating midi file -> {midi_output}")
 
     midi_data = pretty_midi.PrettyMIDI(initial_tempo=bpm)
     for i, midi_segment in enumerate(midi_segments):
@@ -154,12 +156,12 @@ def create_midi_notes_from_pitched_data(start_times: list[float], end_times: lis
     Returns:
         List of MidiSegments
     """
-    print(f"{ULTRASINGER_HEAD} Creating midi_segments")
+    log.info("Creating midi_segments")
 
     tuning_offset = 0.0
     if options is not None and options.tuning_correction:
         tuning_offset = estimate_tuning_offset(pitched_data, options.conf_threshold)
-        print(f"{ULTRASINGER_HEAD} Tuning offset {tuning_offset * 100:+.0f} cents")
+        log.info(f"Tuning offset {tuning_offset * 100:+.0f} cents")
 
     midi_segments = []
 
@@ -265,7 +267,7 @@ def create_midi_file(
         basename_without_ext: str,
 ) -> None:
     """Create midi file"""
-    print(f"{ULTRASINGER_HEAD} Creating Midi with {blue_highlighted('pretty_midi')}")
+    log.info(f"Creating Midi with {blue_highlighted('pretty_midi')}")
 
     voice_instrument = [
         create_midi_instrument(midi_segments)

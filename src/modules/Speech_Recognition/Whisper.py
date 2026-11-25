@@ -1,4 +1,6 @@
 """Whisper Speech Recognition Module"""
+
+import logging
 import os
 import inspect
 import textwrap
@@ -26,7 +28,7 @@ from enum import Enum
 from torch.cuda import OutOfMemoryError
 
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted, red_highlighted
+from modules.console_colors import blue_highlighted, red_highlighted
 from modules.Speech_Recognition.TranscribedData import TranscribedData, from_whisper
 
 #Addition for numbers to words
@@ -34,11 +36,13 @@ import re
 import ast
 from num2words import num2words
 
+log = logging.getLogger("ultrasinger.whisper")
+
 #Addition for numbers to words
 re_split_preserve_space = re.compile(r'(\d+|\W+|\w+)')
 
 
-MEMORY_ERROR_MESSAGE = f"{ULTRASINGER_HEAD} {blue_highlighted('whisper')} ran out of GPU memory; reduce --whisper_batch_size or force usage of cpu with --force_cpu"
+MEMORY_ERROR_MESSAGE = "whisper ran out of GPU memory: reduce transcribe.whisper.batch_size or run with --cpu"
 
 class WhisperModel(Enum):
     """Whisper model"""
@@ -64,8 +68,7 @@ def number_to_words(line,language='en'):
             try:
                 out_tokens.append(num2words(num, lang=language))
             except NotImplementedError:
-                print(
-                    f"{ULTRASINGER_HEAD} {red_highlighted('Error:')} Unknown language for number transcription. Keeping number as numeric characters for line: {line}, token: {token}"
+                log.warning(f"{red_highlighted('Error:')} Unknown language for number transcription. Keeping number as numeric characters for line: {line}, token: {token}"
                 )
         except Exception:
             out_tokens.append(token)
@@ -102,11 +105,10 @@ def transcribe_with_whisper(
 ) -> TranscriptionResult:
     """Transcribe with whisper"""
     # Info: Regardless of the audio sampling rate used in the original audio file, whisper resample the audio signal to 16kHz (via ffmpeg). So the standard input from (44.1 or 48 kHz) should work.
-    print(
-        f"{ULTRASINGER_HEAD} Loading {blue_highlighted('whisper')} with model {blue_highlighted(model.value)} and {red_highlighted(device)} as worker"
+    log.info(f"Loading {blue_highlighted('whisper')} with model {blue_highlighted(model.value)} and {red_highlighted(device)} as worker"
     )
     if alignment_model is not None:
-        print(f"{ULTRASINGER_HEAD} using alignment model {blue_highlighted(alignment_model)}")
+        log.info(f"using alignment model {blue_highlighted(alignment_model)}")
 
     # Fixme: Why it is not none for cpu?
     #compute_type = "int8"
@@ -125,7 +127,7 @@ def transcribe_with_whisper(
 
         audio = whisperx.load_audio(audio_path)
 
-        print(f"{ULTRASINGER_HEAD} Transcribing {audio_path}")
+        log.info(f"Transcribing {audio_path}")
 
         result = loaded_whisper_model.transcribe(
             audio, batch_size=batch_size, language=language
@@ -141,12 +143,8 @@ def transcribe_with_whisper(
                 language_code=language, device=device, model_name=alignment_model
             )
         except ValueError as ve:
-            print(
-                f"{red_highlighted(f'{ve}')}"
-                f"\n"
-                f"{ULTRASINGER_HEAD} {red_highlighted('Error:')} Unknown language. "
-                f"Try add it with --align_model [huggingface]."
-            )
+            log.error(f"{ve}: unknown language for alignment; set transcribe.whisper.align_model "
+                      "to a wav2vec2 model from huggingface")
             raise ve
 
         #Addition for numbers to words (Using previous code from louispan in PR#135)
@@ -181,9 +179,8 @@ def transcribe_with_whisper(
             "Requested float16 compute type, but the target device or backend do not support efficient float16 computation."
             in str(value_error.args[0])
         ):
-            print(value_error)
-            print(
-                f"{ULTRASINGER_HEAD} Your GPU does not support efficient float16 computation; run UltraSinger with '--whisper_compute_type int8'"
+            log.error(str(value_error))
+            log.info("Your GPU does not support efficient float16 computation; run UltraSinger with '--whisper_compute_type int8'"
             )
 
         raise value_error
@@ -191,16 +188,16 @@ def transcribe_with_whisper(
         # Restore original torch.load in case of error
         torch.load = _original_torch_load
 
-        print(oom_exception)
-        print(MEMORY_ERROR_MESSAGE)
+        log.error(str(oom_exception))
+        log.error(MEMORY_ERROR_MESSAGE)
         raise oom_exception
     except Exception as exception:
         # Restore original torch.load in case of error
         torch.load = _original_torch_load
 
         if "CUDA failed with error out of memory" in str(exception.args[0]):
-            print(exception)
-            print(MEMORY_ERROR_MESSAGE)
+            log.error(str(exception))
+            log.error(MEMORY_ERROR_MESSAGE)
         raise exception
     finally:
         # Restore original torch.load after models are loaded
@@ -227,7 +224,7 @@ def convert_to_transcribed_data(result_aligned):
                     vtd.end = previous.end + 0.2
                     msg = f'Error: There is no timestamp for word: "{obj["word"]}". ' \
                           f'Fixing it by placing it after the previous word: "{previous.word}". At start: {vtd.start} end: {vtd.end}. Fix it manually!'
-                print(f"{red_highlighted(msg)}")
+                log.warning(msg)
             transcribed_data.append(vtd)  # and add it to list
     return transcribed_data
 
@@ -240,7 +237,7 @@ def align_lyrics_with_whisperx(
     alignment_model: str = None,
 ) -> TranscriptionResult:
     """Skip transcription: align known lyrics (plain text) to the audio with wav2vec2."""
-    print(f"{ULTRASINGER_HEAD} Aligning known lyrics with {blue_highlighted('wav2vec2')} ({language})")
+    log.info(f"Aligning known lyrics with {blue_highlighted('wav2vec2')} ({language})")
     audio = whisperx.load_audio(audio_path)
     duration = len(audio) / whisperx.audio.SAMPLE_RATE
     model_a, metadata = whisperx.load_align_model(language_code=language, device=device, model_name=alignment_model)

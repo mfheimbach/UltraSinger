@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 
@@ -12,7 +13,9 @@ from modules.Ultrastar.coverter.ultrastar_midi_converter import ultrastar_to_mid
 from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, FormatVersion
 from modules.Ultrastar.ultrastar_writer import create_repitched_txt_from_ultrastar_data, format_separated_string, \
     create_ultrastar_txt
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
+from modules.console_colors import blue_highlighted
+
+log = logging.getLogger("ultrasinger.ultrastar_txt_converter")
 
 
 def from_ultrastar_txt(ultrastar_txt: UltrastarTxtValue) -> ProcessData:
@@ -62,7 +65,7 @@ def create_ultrastar_txt_from_automation(
         app_version: str,
 ):
     """Create Ultrastar txt from automation"""
-    print(f"{ULTRASINGER_HEAD} Using UltraStar {blue_highlighted(f'Format Version {format_version.value}')}")
+    log.info(f"Using UltraStar {blue_highlighted(f'Format Version {format_version.value}')}")
 
     ultrastar_txt = UltrastarTxtValue()
     ultrastar_txt.version = format_version.value

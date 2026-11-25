@@ -6,6 +6,8 @@ substituted words take the reference spelling, keeping the transcribed timing. I
 words match, the lyrics are assumed to belong to another song/version and are not used.
 """
 
+
+import logging
 import copy
 import difflib
 import json
@@ -14,7 +16,9 @@ import unicodedata
 import urllib.parse
 import urllib.request
 
-from modules.console_colors import ULTRASINGER_HEAD, red_highlighted
+from modules.console_colors import red_highlighted
+
+log = logging.getLogger("ultrasinger.lyrics_lookup")
 
 API = "https://lrclib.net/api"
 TIMESTAMP_RE = re.compile(r"\[\d+:\d+(?:\.\d+)?\]")
@@ -40,7 +44,7 @@ def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: fl
         try:
             results = _query({"track_name": t, "artist_name": a})
         except Exception as e:  # network problems: behave like "not found"
-            print(f"{ULTRASINGER_HEAD} {red_highlighted('LRCLIB lookup failed')}: {e}")
+            log.warning(f"{red_highlighted('LRCLIB lookup failed')}: {e}")
             return []
         results = [r for r in results if (r.get("plainLyrics") or r.get("syncedLyrics"))
                    and abs((r.get("duration") or 0) - duration) <= max_duration_diff]

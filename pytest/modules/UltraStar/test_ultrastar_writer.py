@@ -2,11 +2,15 @@
 
 import unittest
 
+import librosa
 from packaging import version
 from unittest.mock import patch, mock_open
 from src.modules.Ultrastar.ultrastar_writer import create_ultrastar_txt, deviation, format_separated_string
 from src.modules.Midi.MidiSegment import MidiSegment
 from src.modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtTag
+
+# librosa loads submodules lazily from disk; resolve note_to_midi before tests patch builtins.open
+librosa.note_to_midi("C4")
 
 
 class TestCreateUltrastarTxt(unittest.TestCase):

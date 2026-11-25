@@ -4,7 +4,6 @@ import os
 import unittest
 import src.modules.Pitcher.pitcher as test_subject
 import pytest
-from src.modules.plot import plot
 
 
 class PitcherTest(unittest.TestCase):
@@ -15,12 +14,11 @@ class PitcherTest(unittest.TestCase):
         root_dir = os.path.abspath(test_dir + "/../../..")
         # test_file_abs_path = os.path.abspath(root_dir + "/test_input/audio_denoised.wav")
         test_file_abs_path = os.path.abspath(root_dir + "/test_input/test_denoised.wav")
-        test_output = root_dir + "/test_output"
 
         # Act
         pitched_data = test_subject.get_pitch_with_file(test_file_abs_path)
         # test_subject.get_pitch_with_crepe_file(test_file_abs_path, 'full', 'cpu', batch_size=1024)
-        plot(pitched_data, test_output, title="pitching test")
+        assert len(pitched_data.frequencies) > 0
         print("done")
 
 if __name__ == "__main__":

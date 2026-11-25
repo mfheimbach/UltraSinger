@@ -4,34 +4,19 @@ Artifact names used by the default presets:
   audio.mix, audio.vocals, audio.instrumental, audio.processed, audio.dry
   words, syllables, pitch, aux.game, notes, tempo, key, language, lyrics, media, file.txt
 
-Where an older cache file of the pre-pipeline code exists (same folder, same naming), stages
-reuse it, so existing caches keep working.
+Logging: stages log through logging.getLogger("ultrasinger.<area>"); see pipeline/log.py.
 """
 
 from __future__ import annotations
 
 import copy
-import json
 import os
 from dataclasses import dataclass
 
-from pipeline.core import Context, Stage, stage
+from pipeline.core import Stage, stage
+from pipeline.log import get
 
-
-def _legacy():
-    """The old monolith, for helpers not yet moved into modules (imported lazily: heavy)."""
-    import UltraSinger
-    return UltraSinger
-
-
-def _read_json(path, cls):
-    with open(path, encoding="utf-8") as f:
-        return cls.from_json(f.read())
-
-
-def _write_json(path, obj):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(obj.to_json())
+log = get("stages")
 
 
 # ----------------------------------------------------------------------------- audio
@@ -40,6 +25,8 @@ def _write_json(path, obj):
 class SeparateVocals(Stage):
     """mix -> vocals + instrumental (Demucs, or python-audio-separator models; optional 2nd pass)."""
     name = "separate"
+    version = "2"  # 2: demucs' random shift seeded (separations were not reproducible)
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     inputs = {"audio": "audio.mix"}
     outputs = {"vocals": "audio.vocals", "instrumental": "audio.instrumental"}
 
@@ -51,7 +38,10 @@ class SeparateVocals(Stage):
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
-        folder = separate_vocal_from_audio(ctx.cache_dir, audio, True, True, ctx.device,
+        from pipeline.core import fingerprint
+        # the separation module caches by file name; a folder per input content keeps it honest
+        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}")
+        folder = separate_vocal_from_audio(work, audio, True, True, ctx.device,
                                            DemucsModel(self.params.model), False,
                                            self.params.separator_model, self.params.second_pass)
         return {"vocals": os.path.join(folder, "vocals.wav"),
@@ -62,6 +52,7 @@ class SeparateVocals(Stage):
 class DeReverb(Stage):
     """audio -> de-reverberated audio (audio-separator de-reverb model)."""
     name = "dereverb"
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     inputs = {"audio": "audio.vocals"}
     outputs = {"audio": "audio.dry"}
 
@@ -90,7 +81,9 @@ class PrepareVocals(Stage):
         from modules.Audio.convert_audio import convert_audio_to_mono_wav
         from modules.Audio.denoise import denoise_vocal_audio
         from modules.Audio.silence_processing import mute_no_singing_parts
-        base = os.path.join(ctx.cache_dir, ctx.basename)
+        from pipeline.core import fingerprint
+        # file names carry the input's hash: runs with different separations share a cache folder
+        base = os.path.join(ctx.cache_dir, f"{ctx.basename}_{fingerprint(audio)[:8]}")
         src = audio
         if self.params.denoise:
             denoise_vocal_audio(src, base + "_denoised.wav")
@@ -113,17 +106,11 @@ class Tempo(Stage):
 
     @dataclass
     class Params:
-        detector: str = "librosa"   # librosa | beat_this
         scale: float = 1.0          # multiply (BPM jitter for evaluation)
 
     def run(self, ctx, audio):
-        if self.params.detector == "beat_this":
-            from modules.Audio.bpm import get_bpm_with_beat_this
-            bpm = get_bpm_with_beat_this(audio, ctx.device)
-        else:
-            from modules.Audio.bpm import get_bpm_from_file
-            bpm = get_bpm_from_file(audio)
-        return {"tempo": bpm * self.params.scale}
+        from modules.Audio.bpm import get_bpm_from_file
+        return {"tempo": get_bpm_from_file(audio) * self.params.scale}
 
 
 @stage
@@ -143,6 +130,7 @@ class Key(Stage):
 class TranscribeWhisper(Stage):
     """audio -> words (+ detected language). Whisper via whisperX, wav2vec2 word timing."""
     name = "transcribe.whisper"
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     version = "2"  # 2: timings rounded to 1 ms (fresh vs cached runs were not identical)
     inputs = {"audio": "audio.processed"}
     outputs = {"words": "words", "language": "language"}
@@ -158,21 +146,10 @@ class TranscribeWhisper(Stage):
         keep_numbers: bool = False
 
     def run(self, ctx, audio):
-        from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
         from modules.Speech_Recognition.Whisper import WhisperModel, transcribe_with_whisper
         p = self.params
-        # same file name as the pre-pipeline cache (reuse existing transcriptions)
-        align = p.align_model.replace("/", "_") if p.align_model else None
-        legacy = (f"whisper_{p.model}_{ctx.device}_{align}_{p.batch_size}_{p.compute_type}_{p.language}"
-                  + (f"_vad{p.vad}" if p.vad != "default" else ""))
-        path = os.path.join(os.path.dirname(audio), f"{legacy}.json")
-        if os.path.exists(path) and os.path.dirname(audio) == ctx.cache_dir:
-            result = _read_json(path, TranscriptionResult)
-        else:
-            result = transcribe_with_whisper(audio, WhisperModel(p.model), ctx.device, p.align_model, p.batch_size,
-                                             p.compute_type, p.language, p.keep_numbers, p.vad)
-            if os.path.dirname(audio) == ctx.cache_dir:
-                _write_json(path, result)
+        result = transcribe_with_whisper(audio, WhisperModel(p.model), ctx.device, p.align_model, p.batch_size,
+                                         p.compute_type, p.language, p.keep_numbers, p.vad)
         result.rounded()  # 1 ms: fresh (float32) and cached (float64) timings must be identical
         return {"words": result.transcribed_data, "language": p.language or result.detected_language}
 
@@ -181,6 +158,7 @@ class TranscribeWhisper(Stage):
 class LyricsLookupLRCLIB(Stage):
     """media + audio duration -> candidate lyrics from lrclib.net."""
     name = "lyrics.lrclib"
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     inputs = {"media": "media", "audio": "audio.processed"}
     outputs = {"lyrics": "lyrics"}
 
@@ -208,8 +186,7 @@ class CorrectWithLyrics(Stage):
             corrected, share = ll.correct_words(words, cand["plain"], self.params.min_match)
             if corrected is not None and share > best_share:
                 best, best_share = corrected, share
-        if ctx.verbose:
-            print(f"[pipeline] lyrics correction: {'%.0f%% matched' % (100 * best_share) if best else 'no match'}")
+        log.info("lyrics correction: " + (f"{best_share:.0%} of words matched" if best else "no matching lyrics"))
         return {"words": best if best is not None else words}
 
 
@@ -222,8 +199,52 @@ class StripPunctuation(Stage):
     cache = False
 
     def run(self, ctx, words):
-        _legacy().remove_unecessary_punctuations(words)
+        from modules.Speech_Recognition.text_ops import strip_punctuation
+        strip_punctuation(words)
         return {"words": words}
+
+
+@stage
+class AlignText(Stage):
+    """Known lyrics text (no timing) -> words aligned to the audio with wav2vec2.
+    Oracle runs (chart lyrics) or user-supplied lyrics instead of transcription."""
+    name = "words.align_text"
+    inputs = {"audio": "audio.processed", "text": "lyrics.text"}
+    outputs = {"words": "words", "language": "language"}
+    hash_modules = False
+
+    @dataclass
+    class Params:
+        language: str = "en"
+        align_model: str | None = None
+
+    def run(self, ctx, audio, text):
+        from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
+        result = align_lyrics_with_whisperx(audio, text, self.params.language, ctx.device, self.params.align_model)
+        result.rounded()
+        return {"words": result.transcribed_data, "language": self.params.language}
+
+
+@stage
+class TranscribeQwen3(Stage):
+    """audio -> words with Qwen3-ASR + Qwen3-ForcedAligner (needs `pip install qwen-asr`; GPU list)."""
+    name = "transcribe.qwen3"
+    inputs = {"audio": "audio.processed"}
+    outputs = {"words": "words", "language": "language"}
+    hash_modules = False
+
+    @dataclass
+    class Params:
+        model: str = "Qwen/Qwen3-ASR-1.7B"
+        aligner: str = "Qwen/Qwen3-ForcedAligner-0.6B"
+        language: str | None = None
+
+    def run(self, ctx, audio):
+        from modules.Speech_Recognition.Qwen3ASR import transcribe_with_qwen3
+        p = self.params
+        result = transcribe_with_qwen3(audio, p.model, p.aligner, ctx.device, p.language)
+        result.rounded()
+        return {"words": result.transcribed_data, "language": p.language or result.detected_language}
 
 
 # ----------------------------------------------------------------------------- syllables
@@ -241,10 +262,11 @@ class Hyphenate(Stage):
 
     def run(self, ctx, words, language):
         from modules.Speech_Recognition.hyphenation import hyphenate_each_word
+        from modules.Speech_Recognition.text_ops import add_hyphen_to_data
         if not self.params.enabled:
             return {"syllables": words}
         hyphen = hyphenate_each_word(language, words)
-        return {"syllables": _legacy().add_hyphen_to_data(words, hyphen) if hyphen is not None else words}
+        return {"syllables": add_hyphen_to_data(words, hyphen) if hyphen is not None else words}
 
 
 @stage
@@ -259,11 +281,51 @@ class SilenceSplit(Stage):
         return {"syllables": remove_silence_from_transcription_data(audio, syllables)}
 
 
+@stage
+class SyllablesFromChart(Stage):
+    """UltraStar txt -> its syllables with the chart's timing (+ tempo, language).
+    Re-pitch runs: everything except the pitch comes from the chart."""
+    name = "syllables.from_chart"
+    inputs = {"chart": "chart"}
+    outputs = {"syllables": "syllables", "tempo": "tempo", "language": "language"}
+
+    @dataclass
+    class Params:
+        language: str | None = None   # default: from the chart's #LANGUAGE
+
+    def run(self, ctx, chart):
+        import re
+        from modules.media_input import read_chart_headers
+        from modules.Speech_Recognition.TranscribedData import TranscribedData
+        from modules.Ultrastar.ultrastar_txt import FILE_ENCODING
+        h = read_chart_headers(chart)
+        bpm = float(h["BPM"].replace(",", "."))
+        gap = float(h.get("GAP", "0").replace(",", ".")) / 1000.0
+        beat = 60.0 / (bpm * 4)
+        out = []
+        with open(chart, encoding=FILE_ENCODING, errors="replace") as f:
+            for line in f:
+                if line.startswith(("P2", "P 2")):
+                    break  # duets: first voice only
+                m = re.match(r"([:*FRG]) +(-?\d+) +(\d+) +(-?\d+) ?(.*)$", line.rstrip("\r\n"))
+                if not m:
+                    continue
+                start, dur, text = int(m.group(2)), int(m.group(3)), m.group(5)
+                t = TranscribedData()
+                t.word, t.start, t.end = text, round(gap + start * beat, 3), round(gap + (start + dur) * beat, 3)
+                t.is_word_end, t.is_hyphen = text.endswith(" "), False
+                out.append(t)
+        language = self.params.language or (h.get("LANGUAGE") or "en")[:2].lower()
+        # tempo only sets the writer's beat grid; the chart's own BPM keeps every note on a beat
+        return {"syllables": out, "tempo": bpm, "language": language}
+
+
 # ----------------------------------------------------------------------------- pitch
 
 @stage
 class PitchRMVPE(Stage):
     name = "pitch.rmvpe"
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     inputs = {"audio": "audio.vocals"}
     outputs = {"pitch": "pitch"}
 
@@ -280,6 +342,7 @@ class PitchRMVPE(Stage):
 @stage
 class PitchSwiftF0(Stage):
     name = "pitch.swiftf0"
+    hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
     inputs = {"audio": "audio.processed"}
     outputs = {"pitch": "pitch"}
 
@@ -329,9 +392,10 @@ class SegmentContour(Stage):
         tuning_correction: bool = True
 
     def run(self, ctx, syllables, pitch):
+        from modules.Midi.segmentation import split_syllables_by_contour
         p = self.params
-        return {"syllables": _legacy().split_syllables_by_contour(syllables, pitch, p.min_duration, p.smooth_frames,
-                                                                  p.conf_threshold, p.tuning_correction)}
+        return {"syllables": split_syllables_by_contour(syllables, pitch, p.min_duration, p.smooth_frames,
+                                                        p.conf_threshold, p.tuning_correction)}
 
 
 @stage
@@ -342,7 +406,8 @@ class SegmentGrid(Stage):
     outputs = {"syllables": "syllables"}
 
     def run(self, ctx, syllables, tempo):
-        return {"syllables": _legacy().split_syllables_into_segments(syllables, tempo)}
+        from modules.Midi.segmentation import split_syllables_into_segments
+        return {"syllables": split_syllables_into_segments(syllables, tempo)}
 
 
 # ----------------------------------------------------------------------------- notes
@@ -387,10 +452,9 @@ class NotesGamePitch(Stage):
 
     def run(self, ctx, notes, game, key):
         from modules.Audio.key_detector import get_allowed_notes_for_key
-        us = _legacy()
-        us.settings.key_quantize_min_offset = self.params.key_min_offset
+        from modules.Midi.note_ops import apply_game_pitches
         allowed = get_allowed_notes_for_key(*key) if self.params.quantize_to_key else None
-        us.apply_game_pitches(notes, game, allowed)
+        apply_game_pitches(notes, game, allowed, self.params.key_min_offset)
         return {"notes": notes}
 
 
@@ -407,10 +471,9 @@ class MergeNotes(Stage):
         same_pitch_syllables: bool = True
 
     def run(self, ctx, notes, syllables, tempo):
-        us = _legacy()
-        us.settings.merge_slides = self.params.slides
-        us.settings.merge_same_pitch_syllables = self.params.same_pitch_syllables
-        notes, syllables = us.merge_syllable_segments(notes, syllables, tempo)
+        from modules.Midi.note_ops import merge_syllable_segments
+        notes, syllables = merge_syllable_segments(notes, syllables, tempo, self.params.slides,
+                                                   self.params.same_pitch_syllables)
         return {"notes": notes, "syllables": syllables}
 
 
@@ -427,7 +490,8 @@ class SnapEdges(Stage):
         conf: float = 0.1
 
     def run(self, ctx, notes, pitch):
-        _legacy().snap_note_edges(notes, pitch, self.params.max_shift, self.params.conf)
+        from modules.Midi.note_ops import snap_note_edges
+        snap_note_edges(notes, pitch, self.params.max_shift, self.params.conf)
         return {"notes": notes}
 
 
@@ -445,7 +509,8 @@ class Calibrate(Stage):
         end_extension: float = 0.06
 
     def run(self, ctx, notes):
-        _legacy().apply_timing_calibration(notes, self.params.offset, self.params.end_extension)
+        from modules.Midi.note_ops import apply_timing_calibration
+        apply_timing_calibration(notes, self.params.offset, self.params.end_extension)
         return {"notes": notes}
 
 
@@ -475,6 +540,7 @@ class WriteUltraStar(Stage):
     inputs = {"notes": "notes", "tempo": "tempo", "media": "media", "language": "language", "key": "key",
               "vocals": "audio.vocals", "instrumental": "audio.instrumental"}
     outputs = {"txt": "file.txt"}
+    optional_inputs = ("vocals", "instrumental")
     cache = False
 
     @dataclass
@@ -482,19 +548,62 @@ class WriteUltraStar(Stage):
         format_version: str = "1.2.0"
         stems: bool = True
 
-    def run(self, ctx, notes, tempo, media, language, key, vocals, instrumental):
+    def run(self, ctx, notes, tempo, media, language, key, vocals=None, instrumental=None):
         from modules.Audio.convert_audio import convert_audio_format
         from modules.Ultrastar.coverter.ultrastar_txt_converter import create_ultrastar_txt_from_automation
         from modules.Ultrastar.ultrastar_txt import FormatVersion
-        from Settings import Settings
+        from version import APP_VERSION
         media = copy.copy(media)
         media.bpm, media.language, media.music_key = tempo, language, f"{key[0]} {key[1]}"
         os.makedirs(ctx.output_dir, exist_ok=True)
-        if self.params.stems:
+        if self.params.stems and vocals and instrumental:
             ext = media.audio_extension
             convert_audio_format(instrumental, os.path.join(ctx.output_dir, f"{ctx.basename} [Instrumental].{ext}"))
             convert_audio_format(vocals, os.path.join(ctx.output_dir, f"{ctx.basename} [Vocals].{ext}"))
         txt = create_ultrastar_txt_from_automation(ctx.basename, ctx.output_dir, notes, media,
                                                    FormatVersion(self.params.format_version), True,
-                                                   Settings.APP_VERSION)
+                                                   APP_VERSION)
+        return {"txt": txt}
+
+
+@stage
+class WriteMidi(Stage):
+    """notes + tempo -> MIDI file next to the chart."""
+    name = "write.midi"
+    inputs = {"notes": "notes", "tempo": "tempo"}
+    outputs = {"midi": "file.midi"}
+    cache = False
+
+    def run(self, ctx, notes, tempo):
+        from modules.Midi.midi_creator import create_midi_file
+        os.makedirs(ctx.output_dir, exist_ok=True)
+        create_midi_file(tempo, ctx.output_dir, notes, ctx.basename)
+        return {"midi": os.path.join(ctx.output_dir, f"{ctx.basename}.mid")}
+
+
+@stage
+class WriteConventions(Stage):
+    """file.txt -> the same chart with the community conventions players get from USDB Syncer:
+    YASS line-break timing, typographic apostrophes, capitalised line starts, and optionally one
+    free beat between touching notes (modules/Ultrastar/conventions.py).
+
+    touching_notes is off by default: our note boundaries don't sit exactly on the charts', so
+    cutting a beat off every touching note loses sung frames (SingStar bench usdx_medium
+    0.609 -> 0.559, voicing recall 0.87 -> 0.79). The other rules don't change any score."""
+    name = "write.conventions"
+    inputs = {"txt": "file.txt"}
+    outputs = {"txt": "file.txt"}
+    cache = False
+
+    @dataclass
+    class Params:
+        touching_notes: bool = False
+        line_breaks: bool = True
+        apostrophes: bool = True
+        capitalise: bool = True
+
+    def run(self, ctx, txt):
+        from modules.Ultrastar.conventions import apply_conventions
+        p = self.params
+        apply_conventions(txt, p.touching_notes, p.line_breaks, p.apostrophes, p.capitalise)
         return {"txt": txt}

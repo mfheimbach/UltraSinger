@@ -13,13 +13,17 @@ A dynamic program then picks the breaks that maximise these scores plus a prior 
 length (characters and duration) learned from the charts.
 """
 
+import logging
+
 import math
 import re
 
 import numpy as np
 
 from modules.Midi.MidiSegment import MidiSegment
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
+from modules.console_colors import blue_highlighted
+
+log = logging.getLogger("ultrasinger.line_breaks")
 
 # logistic model: log-odds(break) = INTERCEPT + W_PAUSE * log(pause + 0.02) + W_PUNCT * logit(p_punct)
 # intercept raised by 1.0 after fitting so line counts match the charts (fitted: 0.355)
@@ -80,7 +84,7 @@ def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: 
     n = len(words)
     if n < 2:
         return
-    print(f"{ULTRASINGER_HEAD} Planning line breaks with {blue_highlighted(model_name)}")
+    log.info(f"Planning line breaks with {blue_highlighted(model_name)}")
     p = np.clip(punctuation_probabilities([w[4] for w in words], model_name, device), 1e-3, 1 - 1e-3)
     score = [0.0] * n
     for i in range(1, n):

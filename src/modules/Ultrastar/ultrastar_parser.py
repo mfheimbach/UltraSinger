@@ -1,9 +1,11 @@
 """Ultrastar txt parser"""
+
+import logging
 import os
 
 from modules import os_helper
 
-from modules.console_colors import ULTRASINGER_HEAD, red_highlighted
+from modules.console_colors import red_highlighted
 from modules.Ultrastar.coverter.ultrastar_converter import (
     get_end_time,
     get_start_time,
@@ -18,10 +20,12 @@ from modules.Ultrastar.ultrastar_txt import (
 )
 from modules.os_helper import get_unused_song_output_dir
 
+log = logging.getLogger("ultrasinger.ultrastar_parser")
+
 
 def parse(input_file: str) -> UltrastarTxtValue:
     """Parse ultrastar txt file to UltrastarTxt class"""
-    print(f"{ULTRASINGER_HEAD} Parse ultrastar txt -> {input_file}")
+    log.info(f"Parse ultrastar txt -> {input_file}")
 
     with open(input_file, "r", encoding=FILE_ENCODING) as file:
         txt = file.readlines()
@@ -93,8 +97,7 @@ def parse_ultrastar_txt(input_file_path: str, output_folder_path: str) -> tuple[
     elif ultrastar_class.audio:
         ultrastar_mp3_name = ultrastar_class.audio
     else:
-        print(
-            f"{ULTRASINGER_HEAD} {red_highlighted('Error!')} The provided text file does not have a reference to "
+        log.warning(f"{red_highlighted('Error!')} The provided text file does not have a reference to "
             f"an audio file."
         )
         exit(1)

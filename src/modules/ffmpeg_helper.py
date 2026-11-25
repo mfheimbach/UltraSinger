@@ -1,8 +1,12 @@
 """FFmpeg helper module."""
 
+import logging
+
 import os
 import shutil
 import subprocess
+
+log = logging.getLogger("ultrasinger.ffmpeg_helper")
 
 
 def __add_ffmpeg_to_path(ffmpeg_path) -> None:
@@ -148,8 +152,7 @@ def separate_audio_video(video_with_audio_path: str, basename_without_ext: str, 
     Separate audio and video from a video file.
     Automatically detects the audio codec and uses the appropriate file extension.
     """
-    from modules.console_colors import ULTRASINGER_HEAD
-
+    
     # Get original video file extension without the dot
     _, video_ext_with_dot = os.path.splitext(video_with_audio_path)
     video_ext = video_ext_with_dot.lstrip('.')
@@ -157,11 +160,11 @@ def separate_audio_video(video_with_audio_path: str, basename_without_ext: str, 
     # Detect audio codec and get appropriate extension
     audio_ext = get_audio_codec_and_extension(video_with_audio_path)
 
-    print(f"{ULTRASINGER_HEAD} Extracting audio from video")
+    log.info("Extracting audio from video")
     audio_file_path = os.path.join(output_folder, f"{basename_without_ext}.{audio_ext}")
     extract_audio(video_with_audio_path, audio_file_path)
 
-    print(f"{ULTRASINGER_HEAD} Creating video without audio")
+    log.info("Creating video without audio")
     video_only_path = os.path.join(output_folder, f"{basename_without_ext}_video.{video_ext}")
     remove_audio_from_video(video_with_audio_path, video_only_path)
 

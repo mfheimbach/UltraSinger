@@ -1,0 +1,78 @@
+#ARTIST:Golden
+#TITLE:Fixture
+#LANGUAGE:English
+#MP3:Golden - Fixture.wav
+#AUDIO:Golden - Fixture.wav
+#VOCALS:Golden - Fixture [Vocals].wav
+#INSTRUMENTAL:Golden - Fixture [Instrumental].wav
+#BPM:374.0
+#GAP:599
+#TAGS:key: C minor
+: 0 3 12 Na 
+: 3 9 20 la
+: 12 4 17 ~ 
+- 22
+: 24 1 12 La 
+: 25 12 15 na 
+: 37 3 10 la 
+: 40 21 14 na 
+- 71
+: 90 17 15 La 
+: 107 8 15 na 
+: 115 11 14 lana 
+- 128
+: 130 17 10 La 
+: 147 7 10 na 
+- 158
+: 160 13 7 La 
+: 173 5 7 na 
+: 178 22 7 la 
+: 200 9 15 na
+: 209 13 17 ~
+: 223 9 14 ~ 
+- 237
+: 239 12 12 La 
+: 251 2 10 la 
+: 253 2 11 na
+: 255 13 10 ~ 
+: 270 10 12 na 
+: 280 6 10 la 
+: 286 21 10 na 
+- 317
+: 333 16 14 La 
+: 349 2 17 na
+: 351 12 14 na 
+: 363 7 14 la
+: 370 3 10 ~ 
+: 373 2 8 la 
+: 376 21 10 na 
+- 403
+: 406 11 5 La 
+: 417 8 7 na 
+: 425 6 8 la 
+: 431 9 7 na 
+: 440 30 15 la 
+: 470 9 17 na 
+: 479 6 19 la 
+: 485 16 17 na 
+: 501 6 17 la
+: 507 6 14 ~ 
+- 513
+: 515 24 12 La 
+- 549
+: 559 32 19 Nala
+: 591 10 17 ~ 
+: 601 3 15 la 
+- 605
+: 607 14 15 Na
+: 621 13 14 la 
+- 635
+: 637 29 17 Lana 
+- 677
+: 681 13 19 Na 
+: 694 7 19 na 
+: 701 7 19 la
+: 708 10 17 ~ 
+: 718 11 17 la 
+: 729 4 17 na 
+E

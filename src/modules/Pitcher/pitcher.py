@@ -1,11 +1,15 @@
 """Pitcher module"""
+
+import logging
 import numpy as np
 
 from scipy.io import wavfile
 from swift_f0 import SwiftF0
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
+from modules.console_colors import blue_highlighted
 from modules.Pitcher.pitched_data import PitchedData
+
+log = logging.getLogger("ultrasinger.pitcher")
 
 _swift_f0_detector = None
 
@@ -24,8 +28,7 @@ def get_pitch_with_file(
 ) -> PitchedData:
     """Pitch detection using SwiftF0"""
 
-    print(
-        f"{ULTRASINGER_HEAD} Pitching with {blue_highlighted('SwiftF0')}"
+    log.info(f"Pitching with {blue_highlighted('SwiftF0')}"
     )
     sample_rate, audio = wavfile.read(filename)
 

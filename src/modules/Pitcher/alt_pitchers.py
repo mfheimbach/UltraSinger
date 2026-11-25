@@ -5,13 +5,17 @@ Optional dependencies: RMVPE needs onnxruntime (already used by SwiftF0) and
 downloads rmvpe.onnx from Hugging Face on first use; FCPE needs `pip install torchfcpe`.
 """
 
+import logging
+
 import os
 
 import librosa
 import numpy as np
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted
+from modules.console_colors import blue_highlighted
 from modules.Pitcher.pitched_data import PitchedData
+
+log = logging.getLogger("ultrasinger.alt_pitchers")
 
 RMVPE_REPO = "lj1995/VoiceConversionWebUI"
 RMVPE_FILE = "rmvpe.onnx"
@@ -54,7 +58,7 @@ def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu", shifts: tuple[flo
     import onnxruntime as ort
     from huggingface_hub import hf_hub_download
 
-    print(f"{ULTRASINGER_HEAD} Pitching with {blue_highlighted('RMVPE')}"
+    log.info(f"Pitching with {blue_highlighted('RMVPE')}"
           + (f" (pitch-shift passes {list(shifts)})" if tuple(shifts) != (0,) else ""))
     model_path = hf_hub_download(RMVPE_REPO, RMVPE_FILE)
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
@@ -102,7 +106,7 @@ def get_pitch_with_fcpe(audio_path: str, device: str = "cpu") -> PitchedData:
     import torch
     from torchfcpe import spawn_bundled_infer_model
 
-    print(f"{ULTRASINGER_HEAD} Pitching with {blue_highlighted('FCPE')}")
+    log.info(f"Pitching with {blue_highlighted('FCPE')}")
     model = spawn_bundled_infer_model(device=device)
     y, _ = librosa.load(audio_path, sr=16000, mono=True)
     n_frames = len(y) // 160 + 1

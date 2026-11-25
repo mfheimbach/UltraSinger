@@ -63,7 +63,7 @@ def main():
     print("| song | chart lag | overlap gain | verdict |")
     print("|---|---|---|---|")
     for name, txt in discover(args.songs, None):
-        vocals = glob.glob(os.path.join(args.work, "cache", slug(name), "separated", "*", "*", "vocals.wav"))
+        vocals = glob.glob(os.path.join(args.work, "cache", slug(name), "**", "vocals.wav"), recursive=True)
         if not vocals:
             print(f"| {name} | - | - | no cached vocals, run it once |")
             continue

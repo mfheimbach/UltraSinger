@@ -1,4 +1,4 @@
-# Best configuration as of 2026-11-25 (bench 0.736 / full songs 0.771 with the CPU proxy).
+# Best configuration (old workbench 0.736, full songs 0.771 with the CPU proxy; SingStar bench: see eval).
 name: best
 steps:
   - use: separate
@@ -22,3 +22,4 @@ steps:
   - use: notes.calibrate
   - use: notes.line_breaks
   - use: write.ultrastar
+  - use: write.conventions

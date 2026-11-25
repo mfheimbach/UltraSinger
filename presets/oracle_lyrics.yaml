@@ -1,0 +1,23 @@
+# Upper bound for lyrics: the chart's own words (no timing) aligned instead of transcribed.
+# Needs the 'lyrics.text' artifact (eval: --oracle-lyrics) and words.align_text.language.
+name: oracle_lyrics
+steps:
+  - use: separate
+    params: {model: htdemucs_ft}
+  - use: prepare
+  - use: tempo
+  - use: key
+  - use: words.align_text
+  - use: words.strip_punctuation
+  - use: syllables.hyphenate
+  - use: syllables.silence_split
+  - use: pitch.rmvpe
+  - use: segment.game
+  - use: notes.from_pitch
+  - use: notes.game_pitch
+  - use: notes.merge
+  - use: notes.snap_edges
+  - use: notes.calibrate
+  - use: write.ultrastar
+    params: {stems: false}
+  - use: write.conventions

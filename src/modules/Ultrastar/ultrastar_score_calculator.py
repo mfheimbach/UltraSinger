@@ -1,4 +1,6 @@
 """Ultrastar score calculator."""
+
+import logging
 from dataclasses import dataclass
 
 from dataclasses_json import dataclass_json
@@ -8,14 +10,7 @@ import librosa
 from modules.ProcessData import ProcessData
 from modules.Ultrastar import ultrastar_parser
 
-from modules.console_colors import (
-    ULTRASINGER_HEAD,
-    blue_highlighted,
-    cyan_highlighted,
-    gold_highlighted,
-    light_blue_highlighted,
-    underlined,
-)
+from modules.console_colors import blue_highlighted, cyan_highlighted, gold_highlighted, light_blue_highlighted, underlined
 from modules.Midi.midi_creator import create_midi_note_from_pitched_data
 from modules.Ultrastar.coverter.ultrastar_converter import (
     get_end_time_from_ultrastar,
@@ -24,6 +19,8 @@ from modules.Ultrastar.coverter.ultrastar_converter import (
 )
 from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtNoteTypeTag
 from modules.Pitcher.pitched_data import PitchedData
+
+log = logging.getLogger("ultrasinger.ultrastar_score_calculator")
 
 MAX_SONG_SCORE = 10000
 MAX_SONG_LINE_BONUS = 1000
@@ -76,7 +73,7 @@ def get_score(points: Points) -> Score:
         else MAX_SONG_SCORE - MAX_SONG_LINE_BONUS
     )
     if(points.parts == 0):
-        print(f"{ULTRASINGER_HEAD} No parts found, returning 0 score")
+        log.info("No parts found, returning 0 score")
         return score
     score.notes = round(
         score.max_score * (points.notes + points.rap) / points.parts
@@ -90,21 +87,20 @@ def get_score(points: Points) -> Score:
 def print_score(score: Score) -> None:
     """Print score."""
 
-    print(
-        f"{ULTRASINGER_HEAD} Total: {cyan_highlighted(str(score.score))}, notes: {blue_highlighted(str(score.notes))}, line bonus: {light_blue_highlighted(str(score.line_bonus))}, golden notes: {gold_highlighted(str(score.golden))}"
+    log.info(f"Total: {cyan_highlighted(str(score.score))}, notes: {blue_highlighted(str(score.notes))}, line bonus: {light_blue_highlighted(str(score.line_bonus))}, golden notes: {gold_highlighted(str(score.golden))}"
     )
 
 
 def calculate_score(pitched_data: PitchedData, ultrastar_class: UltrastarTxtValue) -> (Score, Score):
     """Calculate score."""
 
-    print(ULTRASINGER_HEAD + " Calculating Ultrastar Points")
+    log.info(" Calculating Ultrastar Points")
 
     simple_points = Points()
     accurate_points = Points()
 
     if(len(ultrastar_class.UltrastarNoteLines) == 0):
-        print(f"{ULTRASINGER_HEAD} No note lines found in Ultrastar txt, returning 0 points")
+        log.info("No note lines found in Ultrastar txt, returning 0 points")
         return get_score(simple_points), get_score(accurate_points)
     reachable_line_bonus_per_word = MAX_SONG_LINE_BONUS / len(ultrastar_class.UltrastarNoteLines)
     step_size = 0.09  # Todo: Whats is the step size of the game? Its not 1/bps -> one beat in seconds s = 60/bpm
@@ -162,13 +158,11 @@ def calculate_score(pitched_data: PitchedData, ultrastar_class: UltrastarTxtValu
 def print_score_calculation(simple_points: Score, accurate_points: Score) -> None:
     """Print score calculation."""
 
-    print(
-        f"{ULTRASINGER_HEAD} {underlined('Simple (octave high ignored)')} points"
+    log.info(f"{underlined('Simple (octave high ignored)')} points"
     )
     print_score(simple_points)
 
-    print(
-        f"{ULTRASINGER_HEAD} {underlined('Accurate (octave high matches)')} points:"
+    log.info(f"{underlined('Accurate (octave high matches)')} points:"
     )
     print_score(accurate_points)
 
@@ -193,9 +187,9 @@ def calculate_score_points(
         ultrastar_txt = ultrastar_parser.parse(ultrastar_file_output_path)
         (simple_score, accurate_score) = calculate_score_points_from_txt(processed_data.pitched_data, ultrastar_txt)
     else:
-        print(f"{ULTRASINGER_HEAD} {blue_highlighted('Score of original Ultrastar txt')}")
+        log.info(f"{blue_highlighted('Score of original Ultrastar txt')}")
         (_, _) = calculate_score_points_from_txt(processed_data.pitched_data, processed_data.parsed_file)
-        print(f"{ULTRASINGER_HEAD} {blue_highlighted('Score of re-pitched Ultrastar txt')}")
+        log.info(f"{blue_highlighted('Score of re-pitched Ultrastar txt')}")
         ultrastar_txt = ultrastar_parser.parse(ultrastar_file_output_path)
         (simple_score, accurate_score) = calculate_score_points_from_txt(processed_data.pitched_data, ultrastar_txt)
     return simple_score, accurate_score

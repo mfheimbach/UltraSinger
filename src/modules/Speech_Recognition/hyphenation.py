@@ -1,15 +1,16 @@
 """Hyphenation module"""
 
+
+import logging
 import string
 
 from hyphen import Hyphenator, dictools
 from tqdm import tqdm
 
 from modules.Speech_Recognition.TranscribedData import TranscribedData
-from modules.console_colors import (
-    ULTRASINGER_HEAD,
-    blue_highlighted, red_highlighted,
-)
+from modules.console_colors import blue_highlighted, red_highlighted
+
+log = logging.getLogger("ultrasinger.hyphenation")
 
 def language_check(language="en") -> str | None:
     """Check if language is supported"""
@@ -42,8 +43,7 @@ def language_check(language="en") -> str | None:
     if lang_region is None:
         return None
 
-    print(
-        f"{ULTRASINGER_HEAD} Hyphenate using language code: {blue_highlighted(lang_region)}"
+    log.info(f"Hyphenate using language code: {blue_highlighted(lang_region)}"
     )
     return lang_region
 
@@ -131,8 +131,7 @@ def hyphenate_each_word(
     """Hyphenate each word in the transcribed data."""
     lang_region = language_check(language)
     if lang_region is None:
-        print(
-            f"{ULTRASINGER_HEAD} {red_highlighted('Error in hyphenation for language ')} {blue_highlighted(language)}{red_highlighted(', maybe you want to disable it?')}"
+        log.warning(f"{red_highlighted('Error in hyphenation for language ')} {blue_highlighted(language)}{red_highlighted(', maybe you want to disable it?')}"
         )
         return None
 
@@ -145,9 +144,8 @@ def hyphenate_each_word(
                 hyphenation(transcribed_data[pos].word, hyphenator)
             )
     except Exception as e:
-        print(
-            f"{ULTRASINGER_HEAD} {red_highlighted('Error in hyphenation for language ')} {blue_highlighted(language)}{red_highlighted(', maybe you want to disable it?')}")
-        print(f"\t{red_highlighted(f'->{e}')}")
+        log.warning(f"{red_highlighted('Error in hyphenation for language ')} {blue_highlighted(language)}{red_highlighted(', maybe you want to disable it?')}")
+        log.warning(f"  -> {e}")
         return None
 
     return hyphenated_word

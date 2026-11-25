@@ -1,24 +1,17 @@
-"""Evaluate many configurations in one process: fast sweeps of late pipeline stages.
+"""Evaluate many preset variants in one process (libraries load once; stage caches are shared).
 
-    python eval/batch_eval.py --songs eval_data/usdb_clips --work eval_work_clips --prefix lq_usdb \\
-        --base demucs_model=htdemucs_ft whisper_model=large-v3-turbo \\
-        --config t0: --config t25:key_quantize_min_offset=0.25 ...
+    python eval/batch_eval.py --songs eval_singstar/bench --work eval_work_ss --prefix gp \
+        --preset bench --gt-language --config base: --config t3:segment.game.boundary_threshold=0.3 ...
 
-Each --config is LABEL:KEY=VAL[,KEY=VAL...] on top of --base. Results land in
-<work>/runs/<prefix>_<label>/ exactly like run_eval.py output (metrics.csv, summary.md),
-so compare.py works on them.
-
-Faster than run_eval.py because libraries load once, and BPM / key detection are
-memoized per audio file. Expensive stages (separation, transcription, pitch) come
-from UltraSinger's caches, so run each upstream configuration once with run_eval.py
-first; this tool is for sweeping what comes after.
+Each --config is LABEL:STEP.PARAM=VAL[,STEP.PARAM=VAL...] (or -step) on top of --base. Results land in
+<work>/runs/<prefix>_<label>/ like run_eval.py output (metrics.csv, summary.md), so compare.py works
+on them. --jitter averages over BPM scales (tempo.scale); with GAME segmentation it barely matters.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import functools
 import io
 import json
 import os
@@ -32,19 +25,7 @@ sys.path.insert(0, HERE)
 
 import usdx  # noqa: E402
 from run_eval import discover, score_one, slug, write_outputs  # noqa: E402
-from run_song import run_configured, run_preset  # noqa: E402
-
-
-def memoize_by_file(fn):
-    cache = {}
-
-    @functools.wraps(fn)
-    def wrapper(path, *a, **k):
-        key = (os.path.abspath(path), os.path.getmtime(path), a, tuple(sorted(k.items())))
-        if key not in cache:
-            cache[key] = fn(path, *a, **k)
-        return cache[key]
-    return wrapper
+from run_song import run_preset  # noqa: E402
 
 
 def main() -> None:
@@ -59,19 +40,13 @@ def main() -> None:
                     help="BPM scales to average over, e.g. 0.99 1 1.01. UltraSinger's note segmentation "
                          "is very sensitive to tiny BPM changes; averaging removes that noise from comparisons")
     ap.add_argument("--verbose", action="store_true")
-    ap.add_argument("--preset", help="run a pipeline preset (presets/*.yaml) instead of the old run(); "
-                                     "overrides are then step.param=value; gt_language=true takes the chart's language")
+    ap.add_argument("--preset", default="bench", help="pipeline preset (presets/*.yaml)")
+    ap.add_argument("--gt-language", action="store_true", help="take the language from the chart")
     ap.add_argument("--cache-by", choices=["lineage", "content"], default="lineage",
                     help="lineage (default): step order is part of the cache key; content: steps whose inputs "
                          "are identical share cache entries regardless of how they were produced")
     args = ap.parse_args()
     work = os.path.abspath(args.work)
-
-    import UltraSinger as us
-    us.get_bpm_from_file = memoize_by_file(us.get_bpm_from_file)
-    us.detect_key_from_audio = memoize_by_file(us.detect_key_from_audio)
-    import modules.Audio.bpm as bpm_mod
-    bpm_mod.get_bpm_with_beat_this = memoize_by_file(bpm_mod.get_bpm_with_beat_this)
 
     songs = discover(args.songs, None, args.exclude)
     configs = []
@@ -84,7 +59,7 @@ def main() -> None:
         run_dir = os.path.join(work, "runs", name)
         os.makedirs(run_dir, exist_ok=True)
         config = {"name": name, "mode": "full", "overrides": overrides, "oracle_lyrics": False,
-                  "preset": args.preset}
+                  "preset": args.preset, "gt_language": args.gt_language}
         json.dump(config, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
         t0 = time.time()
         rows = []
@@ -99,17 +74,11 @@ def main() -> None:
                 log = io.StringIO()
                 try:
                     with contextlib.redirect_stdout(log if not args.verbose else sys.stdout):
-                        if args.preset:
-                            ov = [o for o in overrides if o != "gt_language=true"]
-                            ov += [f"tempo.scale={scale}"] if scale is not None else []
-                            chart = run_preset(usdx.read(txt), out, os.path.join(work, "cache", slug(song_name)),
-                                               args.preset, ov, gt_language="gt_language=true" in overrides,
-                                               verbose=True, cache_by=args.cache_by)
-                            json.dump({"txt": chart}, open(os.path.join(out, "run_info.json"), "w"))
-                        else:
-                            ov = overrides + ([f"bpm_scale={scale}"] if scale is not None else [])
-                            run_configured(us, usdx.read(txt), txt, "full", out,
-                                           os.path.join(work, "cache", slug(song_name)), ov)
+                        ov = [o for o in overrides if o != "gt_language=true"]
+                        ov += [f"tempo.scale={scale}"] if scale is not None else []
+                        run_preset(usdx.read(txt), out, os.path.join(work, "cache", slug(song_name)),
+                                   args.preset, ov, gt_language=args.gt_language or "gt_language=true" in overrides,
+                                   verbose=args.verbose, cache_by=args.cache_by)
                     per_scale.append(score_one("full", song_name, txt, os.path.dirname(out)))
                 except Exception as e:  # keep going
                     per_scale.append({"song": song_name, "error": repr(e)})

@@ -1,10 +1,11 @@
 """Ultrastar writer module"""
 
+import logging
+
 import re
 import langcodes
 from packaging import version
 
-from modules.console_colors import ULTRASINGER_HEAD
 from modules.Ultrastar.coverter.ultrastar_converter import (
     real_bpm_to_ultrastar_bpm,
     second_to_beat, )
@@ -13,6 +14,8 @@ from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtTag, 
     FILE_ENCODING
 from modules.Ultrastar.ultrastar_score_calculator import Score
 from modules.Midi.MidiSegment import MidiSegment
+
+log = logging.getLogger("ultrasinger.ultrastar_writer")
 
 
 def get_multiplier(real_bpm: float) -> int:
@@ -42,7 +45,7 @@ def create_ultrastar_txt(
         real_bpm: float) -> None:
     """Creates an Ultrastar txt file from the automation data"""
 
-    print(f"{ULTRASINGER_HEAD} Creating UltraStar file {ultrastar_file_output}")
+    log.info(f"Creating UltraStar file {ultrastar_file_output}")
 
     ultrastar_bpm = real_bpm_to_ultrastar_bpm(real_bpm)
     multiplication = get_multiplier(ultrastar_bpm)
@@ -174,7 +177,7 @@ def deviation(silence_parts):
 
 
 def calculate_silent_beat_length(midi_segments: list[MidiSegment]):
-    print(f"{ULTRASINGER_HEAD} Calculating silence parts for linebreaks.")
+    log.info("Calculating silence parts for linebreaks.")
 
     silent_parts = []
     for i, data in enumerate(midi_segments):
@@ -189,7 +192,7 @@ def create_repitched_txt_from_ultrastar_data(
 ) -> None:
     """Creates a repitched ultrastar txt file from the original one"""
     # todo: just add '_repitched' to input_file
-    print(f"{ULTRASINGER_HEAD} Creating repitched ultrastar txt -> {output_repitched_ultrastar}")
+    log.info(f"Creating repitched ultrastar txt -> {output_repitched_ultrastar}")
 
     # todo: to reader
     with open(input_file, "r", encoding=FILE_ENCODING) as file:

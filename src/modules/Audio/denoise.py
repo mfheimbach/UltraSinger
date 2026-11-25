@@ -1,9 +1,13 @@
 """Reduce noise from audio"""
 
+import logging
+
 import ffmpeg
 
-from modules.console_colors import ULTRASINGER_HEAD, blue_highlighted, green_highlighted
+from modules.console_colors import blue_highlighted, green_highlighted
 from modules.os_helper import check_file_exists
+
+log = logging.getLogger("ultrasinger.denoise")
 
 
 def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
@@ -20,8 +24,7 @@ def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
     #    Enable noise floor tracking. By default is disabled.
     #    With this enabled, noise floor is automatically adjusted.
 
-    print(
-        f"{ULTRASINGER_HEAD} Reduce noise from vocal audio with {blue_highlighted('ffmpeg')}."
+    log.info(f"Reduce noise from vocal audio with {blue_highlighted('ffmpeg')}."
     )
     try:
         (
@@ -31,8 +34,8 @@ def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
             .run(capture_stdout=True, capture_stderr=True)
         )
     except ffmpeg.Error as ffmpeg_exception:
-        print("ffmpeg stdout:", ffmpeg_exception.stdout.decode("utf8"))
-        print("ffmpeg stderr:", ffmpeg_exception.stderr.decode("utf8"))
+        log.error("ffmpeg stdout: %s", ffmpeg_exception.stdout.decode("utf8"))
+        log.error("ffmpeg stderr: %s", ffmpeg_exception.stderr.decode("utf8"))
         raise ffmpeg_exception
 
 
@@ -42,4 +45,4 @@ def denoise_vocal_audio(input_path: str, output_path: str, skip_cache: bool = Fa
     if skip_cache or not cache_available:
         __ffmpeg_reduce_noise(input_path, output_path)
     else:
-        print(f"{ULTRASINGER_HEAD} {green_highlighted('cache')} reusing cached denoised audio")
+        log.info(f"{green_highlighted('cache')} reusing cached denoised audio")

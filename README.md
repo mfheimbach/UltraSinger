@@ -46,20 +46,7 @@ This will help me a lot to keep this project alive and improve it.
     - [Installation](#installation)
     - [Run](#run)
   - [📖 How to use the App](#-how-to-use-the-app)
-    - [🎶 Input](#-input)
-      - [Audio (full automatic)](#audio-full-automatic)
-        - [Local file](#local-file)
-        - [Youtube](#youtube)
-      - [UltraStar (re-pitch)](#ultrastar-re-pitch)
-    - [🗣 Transcriber](#-transcriber)
-      - [Whisper](#whisper)
-        - [Whisper languages](#whisper-languages)
-      - [✍️ Hyphenation](#️-hyphenation)
-    - [👂 Pitcher](#-pitcher)
-    - [👄 Separation](#-separation)
-    - [Sheet Music](#sheet-music)
-    - [Format Version](#format-version)
-    - [🏆 Ultrastar Score Calculation](#-ultrastar-score-calculation)
+    - [Presets and stages](#presets-and-stages)
     - [📟 Use GPU](#-use-gpu)
       - [Considerations for Windows users](#considerations-for-windows-users)
       - [Crashes due to low VRAM](#crashes-due-to-low-vram)
@@ -82,193 +69,57 @@ This will help me a lot to keep this project alive and improve it.
 
 ## 📖 How to use the App
 
-_Not all options working now!_
 ```commandline
-    UltraSinger.py [opt] [mode] [transcription] [pitcher] [extra]
-
-    [opt]
-    -h      This help text.
-    -i      Ultrastar.txt
-            audio/video like .mp3, .mp4, .wav, youtube link
-    -o      Output folder
-
-    [mode]
-    ## if INPUT is audio ##
-    default (Full Automatic Mode) - Creates all, depending on command line options
-    --interactive - Interactive Mode. All options are asked at runtime for easier configuration
-
-    # Single file creation selection is in progress, you currently getting all!
-    (-u      Create ultrastar txt file) # In Progress
-    (-m      Create midi file) # In Progress
-    (-s      Create sheet file) # In Progress
-
-    ## if INPUT is ultrastar.txt ##
-    default  Creates all
-
-    [separation]
-    # Default is htdemucs
-    --demucs              Model name htdemucs|htdemucs_ft|htdemucs_6s|hdemucs_mmi|mdx|mdx_extra|mdx_q|mdx_extra_q >> ((default) is htdemucs)
-
-    [transcription]
-    # Default is whisper
-    --whisper               Multilingual model > tiny|base|small|medium|large-v1|large-v2|large-v3  >> ((default) is large-v2)
-                            English-only model > tiny.en|base.en|small.en|medium.en
-    --whisper_align_model   Use other languages model for Whisper provided from huggingface.co
-    --language              Override the language detected by whisper, does not affect transcription but steps after transcription
-    --whisper_batch_size    Reduce if low on GPU mem >> ((default) is 16)
-    --whisper_compute_type  Change to "int8" if low on GPU mem (may reduce accuracy) >> ((default) is "float16" for cuda devices, "int8" for cpu)
-    --keep_numbers          Numbers will be transcribed as numerics instead of as words
-
-    [extra]
-    --disable_hyphenation   Disable word hyphenation. Hyphenation is enabled by default.
-    --disable_separation    Disable track separation. Track separation is enabled by default.
-    --disable_karaoke       Disable creation of karaoke style txt file. Karaoke is enabled by default.
-    --create_audio_chunks   Enable creation of audio chunks. Audio chunks are disabled by default.
-    --keep_cache            Keep cache folder after creation. Cache folder is removed by default.
-    --plot                  Enable creation of plots. Plots are disabled by default.
-    --quantize_to_key       Quantize notes to detected musical key. Removes pitch slides and out-of-key notes. >> ((default) is enabled)
-    --format_version        0.3.0|1.0.0|1.1.0|1.2.0 >> ((default) is 1.2.0)
-    --musescore_path        path to MuseScore executable
-    --keep_numbers          Transcribe numbers as digits and not words
-    --ffmpeg                Path to ffmpeg and ffprobe executable
-
-    [yt-dlp]
-    --cookiefile            File name where cookies should be read from
-
-    [device]
-    --force_cpu             Force all steps to be processed on CPU.
-    --force_whisper_cpu     Only whisper will be forced to cpu
+python src/UltraSinger.py -i "Artist - Title.mp3"          # audio or video file
+python src/UltraSinger.py -i https://www.youtube.com/...   # YouTube
+python src/UltraSinger.py -i chart.txt                     # re-pitch an existing UltraStar chart
 ```
 
-For standard use, you only need to use [opt]. All other options are optional.
-
-### 🎶 Input
-
-### Mode
-default (Full Automatic Mode) - Creates all, depending on command line options
---interactive - Interactive Mode. All options are asked at runtime for easier configuration
-```commandline
---interactive
-```
-#### Audio / Video (full automatic)
-
-##### Local file
+Options:
 
 ```commandline
--i "input/music.mp3"
+  -i, --input        audio/video file, YouTube URL, or UltraStar txt (re-pitch)
+  -o, --output       output folder (default: 'output' next to the input)
+  --preset NAME      processing preset from presets/ (default: best; repitch for a txt input)
+  --set STEP.PARAM=VALUE   change one parameter of the preset (repeatable), or --set=-STEP to drop a step
+  --language CODE    skip language detection, e.g. en, de
+  --midi             also write a MIDI file
+  --no-stems         don't write the vocal/instrumental audio
+  --no-lookup        no MusicBrainz lookup: artist and title from the file name
+  --cpu              never use the GPU
+  --cache DIR        persistent cache (default: inside the song folder, removed at the end)
+  --keep-cache       keep the song's cache folder
+  --cookiefile FILE  cookies for YouTube
+  --ffmpeg PATH      ffmpeg location if it is not on PATH
+  --list             list all stages and their parameters
+  --check            validate the preset (with your --set changes) and exit
 ```
 
-##### Youtube
+### Presets and stages
+
+Every processing decision lives in a preset (`presets/*.yaml`): an ordered list of stages with their
+parameters. `--list` shows every stage, what it reads and writes, and its parameters.
+
+| preset | what it is |
+|---|---|
+| `best` | best known configuration: htdemucs_ft, Whisper large-v3-turbo, LRCLIB lyrics correction, RMVPE pitch, GAME note segmentation, edge snapping, timing calibration, planned line breaks |
+| `cpu_fullsong` | like best with lighter models (htdemucs, Whisper medium) for CPU-only machines |
+| `repitch` | keep a chart's syllables and timing, detect only the pitches |
+| `bench`, `oracle_lyrics` | evaluation presets (see `eval/`) |
+
+Examples:
 
 ```commandline
--i https://www.youtube.com/watch?v=YwNs1Z0qRY0
+python src/UltraSinger.py -i song.mp3 --set transcribe.whisper.model=medium --set separate.model=htdemucs
+python src/UltraSinger.py -i song.mp3 --set=-lyrics.lrclib --set=-words.correct_lyrics
 ```
 
-Note that if you run into a yt-dlp error such as `Sign in to confirm you’re not a bot. This helps protect our community` ([yt-dlp issue](https://github.com/yt-dlp/yt-dlp/issues/10128)) you can follow these steps:
+Each output folder contains the chart, `lineage.json` (every step and parameter that produced it)
+and `run_log.jsonl` (per-stage timings, cache hits, memory and all log messages).
 
-* generate a cookies.txt file with [yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/Installation) `yt-dlp --cookies cookies.txt --cookies-from-browser firefox`
-* then pass the cookies.txt to UltraSinger `--cookiefile cookies.txt`
-
-#### UltraStar (re-pitch)
-
-This re-pitch the audio and creates a new txt file.
-
-```commandline
--i "input/ultrastar.txt"
-```
-
-### 🗣 Transcriber
-
-Keep in mind that while a larger model is more accurate, it also takes longer to transcribe.
-
-#### Whisper
-
-For the first test run, use the `tiny`, to be accurate use the `large-v2` model.
-
-```commandline
--i XYZ --whisper large-v2
-```
-
-##### Whisper languages
-
-Currently provided default language models are `en, fr, de, es, it, ja, zh, nl, uk, pt`.
-If the language is not in this list, you need to find a phoneme-based ASR model from
-[🤗 huggingface model hub](https://huggingface.co). It will download automatically.
-
-Example for romanian:
-```commandline
--i XYZ --whisper_align_model "gigant/romanian-wav2vec2"
-```
-
-#### ✍️ Hyphenation
-
-Is on by default. Can also be deactivated if hyphenation does not produce
-anything useful. Note that the word is simply split,
-without paying attention to whether the separated word really
-starts at the place or is heard. To disable:
-
-```commandline
--i XYZ --disable_hyphenation
-```
-
-### 👂 Pitcher
-
-Pitching is done with the `SwiftF0` model, which is faster and more accurate than CREPE.
-SwiftF0 automatically detects pitch frequencies between 46.875 Hz (G1) and 2093.75 Hz (C7).
-UltraSinger uses 60hz and 400hz
-
-### 👄 Separation
-
-The vocals are separated from the audio before they are passed to the models. If problems occur with this,
-you have the option to disable this function; in which case the original audio file is used instead.
-
-```commandline
--i XYZ --disable_separation
-```
-
-### 🎵 Key Quantization
-
-By default, UltraSinger quantizes all detected notes to the detected musical key of the song. This helps to:
-* Remove pitch slides and vocal transitions between notes
-* Correct out-of-key notes from pitch detection errors
-
-If you want to keep the raw pitch detection without quantization, set `quantize_to_key = False`.
-For most songs  quantization should produces better results.
-
-### Sheet Music
-
-For Sheet Music generation you need to have `MuseScore` installed on your system.
-Or provide the path to the `MuseScore` executable.
-
-```commandline
--i XYZ --musescore_path "C:/Program Files/MuseScore 4/bin/MuseScore4.exe"
-```
-
-### Format Version
-
-This defines the format version of the UltraStar.txt file. For more info see [Official UltraStar format specification](https://usdx.eu/format/).
-
-You can choose between different format versions. The default is `1.2.0`.
-* `0.3.0` is the first format version. Use this if you have an old UltraStar program and problems with the newer format.
-* `1.0.0` should be supported by the most UltraStar programs. Use this if you have problems with the newest format version
-* `1.1.0` is the current format version.
-* `1.2.0` is the upcoming format version. It is not finished yet.
-* `2.0.0` is the next format version. It is not finished yet.
-
-```commandline
--i XYZ --format_version 1.2.0
-```
-
-### 🏆 Ultrastar Score Calculation
-
-The score that the singer in the audio would receive will be measured.
-You get 2 scores, simple and accurate. You wonder where the difference is?
-Ultrastar is not interested in pitch hights. As long as it is in the pitch range A-G you get one point.
-This makes sense for the game, because otherwise men don't get points for high female voices and women don't get points
-for low male voices. Accurate is the real tone specified in the txt. I had txt files where the pitch was in a range not
-singable by humans, but you could still reach the 10k points in the game. The accuracy is important here, because from
-this MIDI and sheet are created. And you also want to have accurate files
-
+Models with their own licenses: GAME note segmentation (CC BY-NC-SA 4.0, set
+`segment.game.model_dir`; `segment.contour` is a license-free alternative), the punctuation model
+for line breaks (MIT, downloaded on first use).
 
 ### 📟 Use GPU
 
@@ -288,10 +139,11 @@ uv pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvis
 
 #### Crashes due to low VRAM
 
-If something crashes because of low VRAM then use a smaller Whisper model.
-Whisper needs more than 8GB VRAM in the `large` model!
+If something crashes because of low VRAM, use a smaller Whisper model or batch size
+(`--set transcribe.whisper.model=medium`, `--set transcribe.whisper.batch_size=2`) or the
+`cpu_fullsong` preset. Whisper needs more than 8GB VRAM in the `large` models.
 
-You can also force CPU usage with the extra option `--force_cpu`.
+You can also force CPU usage with `--cpu`.
 
 ### 📦 Containerized (Docker or Podman)
 

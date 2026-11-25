@@ -7,17 +7,22 @@ so changes can be judged by numbers instead of by ear.
 
 ```bash
 uv pip install -r eval/requirements.txt          # mir_eval, jiwer (on top of uv sync)
-bash eval/fetch_dev_set.sh                        # 7 Creative Commons songs -> eval_data/dev
-python eval/run_eval.py --songs eval_data/dev --name baseline
-python eval/run_eval.py --songs eval_data/dev --name repitch --mode repitch
-python eval/compare.py eval_work/runs/baseline eval_work/runs/my_change
+python eval/run_eval.py --songs eval_singstar/bench --work eval_work_ng --name baseline --preset bench --gt-language
+python eval/run_eval.py --songs eval_singstar/bench --work eval_work_ng --name repitch --mode repitch
+python eval/compare.py eval_work_ng/runs/baseline eval_work_ng/runs/my_change
 ```
 
-Any `Settings` field can be overridden per run:
+Runs use pipeline presets (`presets/*.yaml`); any stage parameter can be changed per run, and
+steps can be dropped:
 
 ```bash
-python eval/run_eval.py --songs eval_data/dev --name medium --set whisper_model=medium --set whisper_batch_size=4
+python eval/run_eval.py ... --name game03 --set segment.game.boundary_threshold=0.3
+python eval/run_eval.py ... --name nosnap --set=-notes.snap_edges
+python eval/batch_eval.py --songs eval_singstar/bench --work eval_work_ng --prefix gt --preset bench \
+    --gt-language --config base: --config t03:segment.game.boundary_threshold=0.3
 ```
+
+Current data, split and baseline: see `WORKSPACE.md`.
 
 ## Test set layout
 
@@ -35,17 +40,14 @@ Audio never goes into git (`eval_data/` and `eval_work/` are ignored).
 
 ## Clips, oracle lyrics, sweeps
 
-- `make_clips.py --songs DIR --out DIR_clips [--seconds 45]` cuts each song to its
-  densest stretch of singing (cropped audio + matching chart). Lets large models
-  run on small machines; confirm wins on full songs.
+- `splits/make_quick_bench.py` builds the quick bench (random 30 s windows with at least 40 %
+  singing; the old "densest stretch" clips of `make_clips.py` were biased to loud parts).
 - `run_eval.py ... --oracle-lyrics` aligns the chart's own lyrics (plain text, no
-  timing) instead of transcribing: the upper bound for "download lyrics, then align".
-  `--set lyrics_aligner=qwen3` uses Qwen3-ForcedAligner instead of wav2vec2.
-- `sweep_note_pitch.py --songs DIR` grid-searches the note-pitch options in-process
-  from cached pitch tracks (seconds per configuration; needs one repitch run first).
-- Alternative transcriber: `--set transcriber=qwen3 [--set qwen3_model=Qwen/Qwen3-ASR-0.6B]`
-  (needs `pip install qwen-asr`; if it bumps `opentelemetry-api`, pin it back to
-  the version in uv.lock or WhisperX's VAD breaks).
+  timing) instead of transcribing (preset `oracle_lyrics`): the upper bound for
+  "download lyrics, then align".
+- Alternative transcriber: `--set transcribe.whisper.use=transcribe.qwen3` swaps the stage
+  (needs `pip install qwen-asr`; if it bumps `opentelemetry-api`, pin it back to the version in
+  uv.lock or WhisperX's VAD breaks).
 
 ## Metrics
 
@@ -80,18 +82,19 @@ Repitch mode: `note_chroma_acc`, `note_chroma_acc_pm1`,
 
 ## Caching
 
-Each song gets `eval_work/cache/<song>/`, shared by all runs: Demucs stems,
-transcription (keyed by Whisper config) and pitch.
-
-Caveat: UltraSinger's pitch cache key is only `swiftf0_<mode>`. It doesn't
-include SwiftF0 parameters or whether separation was on. When changing
-anything that affects pitch, add `--set skip_cache_pitch_detection=true`.
+Each song gets `<work>/cache/<song>/`, shared by all runs. Every stage result is cached under a key
+made of: stage name, version and parameters, the content of its inputs, the upstream chain of steps
+(order matters; `--cache-by content` ignores it), the stage's source code (and the `modules.*`
+files it imports, except for the expensive model stages), and the content of model files given as
+parameters. Each cache file has a `.lineage.json` with every step order that produced it.
 
 ## Notes
 
 - `--only` / `--exclude` filter songs by folder-name substring.
 - `check_charts.py --songs DIR` checks chart timing against the separated vocals
   (independent of UltraSinger); combine with a repitch run's `transpose` to vet a new test set.
-- Runs each song in a subprocess (UltraSinger keeps settings in module globals).
-- MusicBrainz lookup and sheet-music export are stubbed out; metadata comes from the chart.
-- Whisper large-v2 needs more than 8 GB RAM on CPU; use `medium` on small machines.
+- `run_eval.py` runs each song in a subprocess (bounded memory); `batch_eval.py` runs all in one.
+- No MusicBrainz lookup: metadata comes from the chart.
+- Whisper large-v3 needs more than 8 GB RAM on CPU; use turbo or medium on small machines.
+- Reproducibility: demucs' random shift and GAME's sampling noise are seeded, timings are rounded
+  to 1 ms; the same input gives byte-identical charts.
