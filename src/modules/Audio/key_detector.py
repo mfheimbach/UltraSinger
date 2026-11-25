@@ -120,7 +120,9 @@ def quantize_note_to_key(note: str, allowed_notes: set[str]) -> str:
     min_distance = float('inf')
     best_note = note
 
-    for allowed_note_name in allowed_notes:
+    # sorted: set order depends on the hash seed, which made ties (a note exactly between two
+    # allowed notes) resolve differently from run to run; ties now go to the lower note
+    for allowed_note_name in sorted(allowed_notes, key=lambda n: librosa.note_to_midi(f"{n}4")):
         # Try same octave and adjacent octaves
         for oct_offset in [-1, 0, 1]:
             if not octave:
