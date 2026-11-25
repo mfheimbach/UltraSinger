@@ -48,16 +48,37 @@ def _rmvpe_decode(hidden: np.ndarray, threshold: float = 0.03) -> tuple[np.ndarr
     return f0, conf
 
 
-def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu") -> PitchedData:
+def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu", shifts: tuple[float, ...] = (0,)) -> PitchedData:
+    """RMVPE pitch. With several shifts (semitones), the audio is also pitch-shifted, each pass is
+    shifted back, and the per-frame median is taken (frames voiced in most passes)."""
     import onnxruntime as ort
     from huggingface_hub import hf_hub_download
 
-    print(f"{ULTRASINGER_HEAD} Pitching with {blue_highlighted('RMVPE')}")
+    print(f"{ULTRASINGER_HEAD} Pitching with {blue_highlighted('RMVPE')}"
+          + (f" (pitch-shift passes {list(shifts)})" if tuple(shifts) != (0,) else ""))
     model_path = hf_hub_download(RMVPE_REPO, RMVPE_FILE)
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
     session = ort.InferenceSession(model_path, providers=providers)
 
     y, _ = librosa.load(audio_path, sr=16000, mono=True)
+    passes = []
+    for shift in shifts:
+        ys = y if shift == 0 else librosa.effects.pitch_shift(y, sr=16000, n_steps=shift)
+        f0, conf = _rmvpe_pass(session, ys)
+        midi = np.where(f0 > 0, librosa.hz_to_midi(np.maximum(f0, 1e-3)) - shift, np.nan)
+        passes.append((midi, conf))
+    n = min(len(m) for m, _ in passes)
+    midi = np.vstack([m[:n] for m, _ in passes])
+    conf = np.median(np.vstack([c[:n] for _, c in passes]), axis=0)
+    voiced = np.sum(~np.isnan(midi), axis=0) * 2 > len(passes)
+    with np.errstate(all="ignore"):
+        med = np.nanmedian(midi, axis=0)
+    f0 = np.where(voiced, librosa.midi_to_hz(np.nan_to_num(med)), 0.0)
+    times = np.arange(n) * 0.01
+    return PitchedData(times.tolist(), f0.astype(float).tolist(), conf.astype(float).tolist())
+
+
+def _rmvpe_pass(session, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     mel = _rmvpe_mel(y)  # (128, T)
     n_frames = mel.shape[-1]
     hidden_parts = []
@@ -72,9 +93,7 @@ def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu") -> PitchedData:
         out = session.run(None, {inp: part[None]})[0][0]  # (T', 360)
         hidden_parts.append(out[:n])
     hidden = np.concatenate(hidden_parts, axis=0)
-    f0, conf = _rmvpe_decode(hidden)
-    times = np.arange(len(f0)) * 0.01
-    return PitchedData(times.tolist(), f0.astype(float).tolist(), conf.astype(float).tolist())
+    return _rmvpe_decode(hidden)
 
 
 # ---------------------------------------------------------------- FCPE

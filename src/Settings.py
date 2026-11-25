@@ -84,6 +84,7 @@ class Settings:
     # processed (separated+denoised+muted, original) | vocals (separated) | mix (original audio)
     pitch_detector = "swiftf0"
     pitch_audio = "processed"
+    pitch_shift_passes = "0"  # rmvpe: semitone shifts, median of the passes (e.g. "-1/0/1")
 
     # Note segmentation inside syllables: grid (fixed 16th notes, then merge: original) |
     # contour (split where the smoothed pitch moves to a new semitone for >= contour_min_duration)

@@ -4,6 +4,7 @@ import copy
 import json
 import getopt
 import os
+import re
 import sys
 import Levenshtein
 import librosa
@@ -1072,6 +1073,10 @@ def infos_from_audio_video_input_file() -> tuple[str, str, str, MediaInfo]:
     )
 
 
+def pitch_shift_passes() -> tuple[float, ...]:
+    return tuple(float(x) for x in re.split(r"[,/;]", str(settings.pitch_shift_passes)) if x.strip()) or (0.0,)
+
+
 def pitch_audio(
         process_data_paths: ProcessDataPaths) -> PitchedData:
     """Pitch audio"""
@@ -1079,6 +1084,8 @@ def pitch_audio(
     pitching_config = f"swiftf0_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
     if settings.pitch_detector != "swiftf0" or settings.pitch_audio != "processed":
         pitching_config = f"{settings.pitch_detector}_{settings.pitch_audio}_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
+        if pitch_shift_passes() != (0,):
+            pitching_config += "_shifts" + "_".join(f"{x:g}" for x in pitch_shift_passes())
     pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
     cache_available = check_file_exists(pitched_data_path)
 
@@ -1089,7 +1096,7 @@ def pitch_audio(
         }.get(settings.pitch_audio, process_data_paths.processing_audio_path)
         if settings.pitch_detector == "rmvpe":
             from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
-            pitched_data = get_pitch_with_rmvpe(audio_path, settings.pytorch_device)
+            pitched_data = get_pitch_with_rmvpe(audio_path, settings.pytorch_device, pitch_shift_passes())
         elif settings.pitch_detector == "fcpe":
             from modules.Pitcher.alt_pitchers import get_pitch_with_fcpe
             pitched_data = get_pitch_with_fcpe(audio_path, settings.pytorch_device)
