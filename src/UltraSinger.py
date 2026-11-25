@@ -711,7 +711,7 @@ def pitch_audio(
         process_data_paths: ProcessDataPaths) -> PitchedData:
     """Pitch audio"""
 
-    pitching_config = f"swiftf0_{settings.ignore_audio}"
+    pitching_config = f"swiftf0_{settings.ignore_audio}_sep{settings.use_separated_vocal}"
     pitched_data_path = os.path.join(process_data_paths.cache_folder_path, f"{pitching_config}.json")
     cache_available = check_file_exists(pitched_data_path)
 
