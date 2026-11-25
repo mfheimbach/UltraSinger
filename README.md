@@ -81,7 +81,12 @@ Options:
   -i, --input        audio/video file, YouTube URL, or UltraStar txt (re-pitch)
   -o, --output       output folder (default: 'output' next to the input)
   --preset NAME      processing preset from presets/ (default: best; repitch for a txt input)
-  --set STEP.PARAM=VALUE   change one parameter of the preset (repeatable), or --set=-STEP to drop a step
+  --set OVERRIDE     change the preset (repeatable, applied in order):
+                       step.param=value        a parameter
+                       step.after=other        move a step (also step.before=other)
+                       step.use=other_stage    swap a stage
+                       -step                   drop a step (write it as --set=-step)
+                       +stage[#id][@after=step]  insert a step
   --language CODE    skip language detection, e.g. en, de
   --midi             also write a MIDI file
   --no-stems         don't write the vocal/instrumental audio
@@ -89,10 +94,14 @@ Options:
   --cpu              never use the GPU
   --cache DIR        persistent cache (default: inside the song folder, removed at the end)
   --keep-cache       keep the song's cache folder
+  --fresh STEP       recompute STEP, ignoring its cache
   --cookiefile FILE  cookies for YouTube
   --ffmpeg PATH      ffmpeg location if it is not on PATH
+  -q, --quiet        console: warnings and errors only
+  --debug            console: everything live (library output, progress bars)
   --list             list all stages and their parameters
   --check            validate the preset (with your --set changes) and exit
+  --where STEP       show every position where STEP could run, and exit
 ```
 
 ### Presets and stages
@@ -112,10 +121,16 @@ Examples:
 ```commandline
 python src/UltraSinger.py -i song.mp3 --set transcribe.whisper.model=medium --set separate.model=htdemucs
 python src/UltraSinger.py -i song.mp3 --set=-lyrics.lrclib --set=-words.correct_lyrics
+python src/UltraSinger.py --where words.strip_punctuation          # where could this step go?
+python src/UltraSinger.py -i song.mp3 --set words.strip_punctuation.after=syllables.hyphenate
 ```
 
-Each output folder contains the chart, `lineage.json` (every step and parameter that produced it)
-and `run_log.jsonl` (per-stage timings, cache hits, memory and all log messages).
+Text stages work on whichever text level is current: moved after hyphenation, punctuation
+cleanup, silence splitting or a segmenter operate on syllables instead of words.
+
+Each output folder contains the chart, `lineage.json` (time, code version, every step and
+parameter that produced it) and `run_log.jsonl` (per-stage timings, cache hits, memory, and every
+message including library warnings and output, which the console shows only once and in short).
 
 Models with their own licenses: GAME note segmentation (CC BY-NC-SA 4.0, set
 `segment.game.model_dir`; `segment.contour` is a license-free alternative), the punctuation model

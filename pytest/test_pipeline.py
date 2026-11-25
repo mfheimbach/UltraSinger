@@ -151,3 +151,37 @@ def test_golden_tail(monkeypatch):
             f.write("\n".join(body) + "\n")
     with open(GOLDEN, encoding="utf-8") as f:
         assert body == f.read().splitlines()
+
+
+# ----------------------------------------------------------------------------- order flexibility
+
+INIT = {"audio.mix", "media"}
+
+
+def test_move_and_insert_overrides():
+    p = load_preset(preset_path("bench"), ["words.strip_punctuation.after=syllables.silence_split",
+                                           "+write.midi@after=write.ultrastar"])
+    ids = [s.id for s in p.stages]
+    assert ids.index("words.strip_punctuation") == ids.index("syllables.silence_split") + 1
+    assert ids.index("write.midi") == ids.index("write.ultrastar") + 1
+    assert p.validate(INIT) == []
+    with pytest.raises(ValueError):
+        load_preset(preset_path("bench"), ["+write.midi@after=no.such.step"])
+
+
+def test_text_stage_binds_to_current_text_level():
+    before = load_preset(preset_path("bench"))
+    after = load_preset(preset_path("bench"), ["words.strip_punctuation.after=syllables.hyphenate"])
+    before.validate(INIT)
+    after.validate(INIT)
+    get = lambda p: next(s for s in p.stages if s.id == "words.strip_punctuation")
+    assert get(before).input_names["words"] == "words" and get(before).output_names["words"] == "words"
+    assert get(after).input_names["words"] == "syllables" and get(after).output_names["words"] == "syllables"
+
+
+def test_where_lists_valid_positions():
+    p = load_preset(preset_path("bench"))
+    positions = p.where("notes.calibrate", INIT)
+    ids = [s.id for s in p.stages if s.id != "notes.calibrate"]
+    valid_after = {ids[i - 1] for i in positions if i}
+    assert "notes.from_pitch" in valid_after and "transcribe.whisper" not in valid_after

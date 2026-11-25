@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(HERE)
@@ -39,22 +40,39 @@ def preset_path(name_or_path: str) -> str:
 
 def run_pipeline(song, preset, overrides: list[str] | None = None, cache_dir: str | None = None,
                  device: str = "cpu", verbose: bool = True, cache_by: str = "lineage",
-                 extra: dict | None = None) -> dict:
+                 extra: dict | None = None, debug: bool = False, fresh: tuple[str, ...] = ()) -> dict:
     """Run a preset on a prepared song (modules.media_input.SongInput). Returns the artifact store."""
     from pipeline.log import run_logging
     pipeline = load_preset(preset_path(preset) if isinstance(preset, str) else preset, overrides)
     ctx = Context(cache_dir=cache_dir or os.path.join(song.song_dir, "cache"), output_dir=song.song_dir,
-                  device=device, basename=song.basename, verbose=verbose, cache_by=cache_by)
+                  device=device, basename=song.basename, verbose=verbose, cache_by=cache_by,
+                  extra={"fresh": set(fresh)})
     store = {"audio.mix": os.path.abspath(song.audio), "media": song.media}
     if song.chart:
         store["chart"] = song.chart
     store.update(extra or {})
-    with run_logging(os.path.join(song.song_dir, "run_log.jsonl"), verbose):
+    with run_logging(os.path.join(song.song_dir, "run_log.jsonl"), verbose, debug):
         store = pipeline.run(ctx, store)
     with open(os.path.join(song.song_dir, "lineage.json"), "w", encoding="utf-8") as f:
-        json.dump({"preset": pipeline.name, "overrides": list(overrides or []),
+        json.dump({"created": time.strftime("%Y-%m-%d %H:%M:%S"), "code": _git_version(),
+                   "preset": pipeline.name, "overrides": list(overrides or []),
+                   "steps": [st.id for st in pipeline.stages],
                    "chain": store["_lineage"].get("file.txt", [])}, f, indent=1, default=str)
     return store
+
+
+def _git_version() -> str | None:
+    """Commit (+ '-dirty' with local changes) of the code that made a chart, if run from git."""
+    import subprocess
+    try:
+        root = os.path.dirname(SRC)
+        rev = subprocess.run(["git", "-C", root, "rev-parse", "--short", "HEAD"], capture_output=True,
+                             text=True, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+        return (rev + ("-dirty" if dirty else "")) or None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def media_from_filename(path: str, artist: str | None = None, title: str | None = None):
@@ -68,7 +86,8 @@ def media_from_filename(path: str, artist: str | None = None, title: str | None 
 def run_song(audio_path: str, preset, overrides: list[str] | None = None, output_dir: str = "output",
              cache_dir: str | None = None, device: str = "cpu", artist: str | None = None,
              title: str | None = None, copy_audio: bool = True, verbose: bool = True,
-             cache_by: str = "lineage", chart: str | None = None, extra: dict | None = None) -> dict:
+             cache_by: str = "lineage", chart: str | None = None, extra: dict | None = None,
+             fresh: tuple[str, ...] = ()) -> dict:
     """Run a preset on one audio file without any lookup (eval harness, scripts)."""
     from modules.media_input import SongInput
     media = media_from_filename(audio_path, artist, title)
@@ -80,7 +99,7 @@ def run_song(audio_path: str, preset, overrides: list[str] | None = None, output
         if os.path.abspath(target) != os.path.abspath(audio_path):
             shutil.copy(audio_path, target)
     song = SongInput(basename, song_dir, audio_path, media, chart=chart)
-    return run_pipeline(song, preset, overrides, cache_dir, device, verbose, cache_by, extra)
+    return run_pipeline(song, preset, overrides, cache_dir, device, verbose, cache_by, extra, fresh=fresh)
 
 
 def main(argv=None):

@@ -75,7 +75,9 @@ def get_pitch_with_rmvpe(audio_path: str, device: str = "cpu", shifts: tuple[flo
     midi = np.vstack([m[:n] for m, _ in passes])
     conf = np.median(np.vstack([c[:n] for _, c in passes]), axis=0)
     voiced = np.sum(~np.isnan(midi), axis=0) * 2 > len(passes)
-    with np.errstate(all="ignore"):
+    import warnings
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns (unvoiced frames) are expected
         med = np.nanmedian(midi, axis=0)
     f0 = np.where(voiced, librosa.midi_to_hz(np.nan_to_num(med)), 0.0)
     times = np.arange(n) * 0.01

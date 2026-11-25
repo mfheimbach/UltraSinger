@@ -7,7 +7,8 @@
   python src/UltraSinger.py --list                            # stages and their parameters
 
 Every processing decision lives in a preset (presets/*.yaml): an ordered list of stages with
-parameters. --set changes one parameter (step.param=value) or drops a step (-step).
+parameters. --set changes a parameter (step.param=value), moves a step (step.after=other),
+drops one (-step) or inserts one (+stage@after=step); --where STEP lists valid positions.
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("-i", "--input", help="audio/video file, YouTube URL, or UltraStar txt (re-pitch)")
     ap.add_argument("-o", "--output", help="output folder (default: 'output' next to the input)")
     ap.add_argument("--preset", help="preset name or path (default: best; repitch for a txt input)")
-    ap.add_argument("--set", action="append", default=[], metavar="STEP.PARAM=VALUE",
-                    help="override a parameter, or '-step' to drop a step (repeatable)")
+    ap.add_argument("--set", action="append", default=[], metavar="OVERRIDE",
+                    help="step.param=value | step.after=other | step.before=other | -step | "
+                         "+stage[#id][@after=step] (repeatable, applied in order)")
     ap.add_argument("--language", help="language code (skips detection), e.g. en, de")
     ap.add_argument("--midi", action="store_true", help="also write a MIDI file")
     ap.add_argument("--no-stems", action="store_true", help="don't write vocal/instrumental audio")
@@ -42,11 +44,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--cpu", action="store_true", help="never use the GPU")
     ap.add_argument("--cache", help="persistent cache folder (default: inside the song folder, removed at the end)")
     ap.add_argument("--keep-cache", action="store_true", help="keep the song's cache folder")
+    ap.add_argument("--fresh", action="append", default=[], metavar="STEP", help="recompute STEP, ignoring its cache")
     ap.add_argument("--cookiefile", help="cookies.txt for YouTube")
     ap.add_argument("--ffmpeg", default="", help="path to ffmpeg if it is not on PATH")
-    ap.add_argument("-q", "--quiet", action="store_true")
+    ap.add_argument("-q", "--quiet", action="store_true", help="console: warnings and errors only")
+    ap.add_argument("--debug", action="store_true", help="console: everything, live (library output, progress bars)")
     ap.add_argument("--list", action="store_true", help="list stages and parameters")
     ap.add_argument("--check", action="store_true", help="validate the preset (with --set) and exit")
+    ap.add_argument("--where", metavar="STEP", help="show every position where STEP could run, and exit")
     ap.add_argument("--version", action="version", version=f"UltraSinger-ng {APP_VERSION}")
     return ap
 
@@ -94,8 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     from pipeline import log as plog
     from pipeline.core import describe, load_preset
-    from pipeline.run import INITIAL, run_pipeline
-    plog.setup(verbose=not args.quiet)
+    from pipeline.run import run_pipeline
+    plog.setup(verbose=not args.quiet, debug=args.debug)
 
     if args.list:
         print(describe())
@@ -106,9 +111,14 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, KeyError) as err:
         log.error(str(err))
         return 1
+    initial_guess = {"audio.mix", "media"} | ({"chart"} if (args.input or "").lower().endswith(".txt") else set())
+    if args.where:
+        print(pipeline.describe_positions(args.where, initial_guess))
+        return 0
     if args.check:
-        problems = pipeline.validate(INITIAL)
-        print("ok" if not problems else "\n".join(problems))
+        problems = pipeline.validate(initial_guess)
+        print("\n".join([" -> ".join(st.id for st in pipeline.stages)] + (problems or ["ok"])
+                        + [f"note: {n}" for n in pipeline.unused_outputs(initial_guess)]))
         return 0 if not problems else 1
     if not args.input:
         build_parser().print_help()
@@ -132,7 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     cache_dir = args.cache or os.path.join(song.song_dir, "cache")
-    store = run_pipeline(song, preset, args.set, cache_dir, device, verbose=not args.quiet)
+    store = run_pipeline(song, preset, args.set, cache_dir, device, verbose=not args.quiet, debug=args.debug,
+                         fresh=tuple(args.fresh))
     if not args.cache and not args.keep_cache:
         shutil.rmtree(cache_dir, ignore_errors=True)
     log.info(f"done: {store.get('file.txt')}")

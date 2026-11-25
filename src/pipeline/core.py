@@ -5,8 +5,15 @@ declares the artifacts it reads and writes; a pipeline is an ordered list of sta
 works as long as every input exists before the stage that reads it (checked up front), so stages
 with the same signature (e.g. text in / text out) can be swapped or moved.
 
-Caching: a stage's result is stored under a key made from its name, version, parameters and the
-fingerprints of its inputs. Changing anything upstream invalidates exactly what depends on it.
+Slots can accept several artifacts: ``"syllables|words"`` binds to whichever of them was produced
+most recently, and an output ``"@slot"`` writes back to the artifact that slot was bound to. So a
+text stage (punctuation cleanup, silence split, a segmenter) works before or after hyphenation
+without changes. Overrides move and insert steps: ``step.after=other``, ``step.before=other``,
+``+stage@after=step``. ``Pipeline.where(step)`` lists every position a step could take.
+
+Caching: a stage's result is stored under a key made from its name, version, parameters, the
+content of its inputs, the upstream step chain and the stage's code. Changing anything upstream
+invalidates exactly what depends on it.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import json
 import os
 import pickle
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,16 +92,64 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha1(blob).hexdigest()[:16]
 
 
-_CODE_FP: dict[type, str] = {}
-_IMPORT = re.compile(r"^\s*(?:from\s+(modules(?:\.\w+)+)\s+import|import\s+(modules(?:\.\w+)+))", re.M)
+_CODE_FP: dict[tuple, str] = {}
+_IMPORT = re.compile(r"^\s*(?:from\s+(modules(?:\.\w+)+)\s+import\s+([\w, ()]+)|import\s+(modules(?:\.\w+)+))", re.M)
+_CLOSURE: dict[str, dict[str, str]] = {}
+
+
+def _module_file(name: str) -> str | None:
+    import importlib.util
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):
+        return None
+    return spec.origin if spec and spec.origin and os.path.isfile(spec.origin) else None
+
+
+def _imports(src: str) -> set[str]:
+    """modules.* names a source imports (incl. 'from modules.X import submodule')."""
+    out = set()
+    for frm, names, plain in _IMPORT.findall(src):
+        if plain:
+            out.add(plain)
+            continue
+        out.add(frm)
+        for n in re.split(r"[,\s()]+", names):
+            if n and _module_file(f"{frm}.{n}"):
+                out.add(f"{frm}.{n}")
+    return out
+
+
+def code_dependencies(cls: type) -> dict[str, str]:
+    """Every modules.* file a stage depends on, transitively, with its content hash."""
+    import inspect
+    key = cls.__module__ + "." + cls.__qualname__
+    if key not in _CLOSURE:
+        try:
+            todo = list(_imports(inspect.getsource(cls)))
+        except (OSError, TypeError):
+            todo = []
+        files, seen = {}, set()
+        while todo:
+            name = todo.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            path = _module_file(name)
+            if not path:
+                continue
+            files[os.path.relpath(path)] = _file_fingerprint(path)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                todo.extend(_imports(f.read()) - seen)
+        _CLOSURE[key] = dict(sorted(files.items()))
+    return _CLOSURE[key]
 
 
 def code_fingerprint(cls: type, with_modules: bool = True) -> str:
-    """Hash of a stage's own source and (unless opted out) of the modules.* files it imports, so
-    editing the code behind a stage invalidates its cache without a manual version bump."""
+    """Hash of a stage's own source and (unless opted out) of every modules.* file it depends on,
+    transitively, so editing the code behind a stage invalidates its cache without a version bump."""
     key = (cls, with_modules)
     if key not in _CODE_FP:
-        import importlib.util
         import inspect
         try:
             src = inspect.getsource(cls)
@@ -101,10 +157,7 @@ def code_fingerprint(cls: type, with_modules: bool = True) -> str:
             src = cls.__qualname__
         h = hashlib.sha1(src.encode())
         if with_modules:
-            for a, b in sorted(set(_IMPORT.findall(src))):
-                spec = importlib.util.find_spec(a or b)
-                if spec and spec.origin and os.path.isfile(spec.origin):
-                    h.update(_file_fingerprint(spec.origin).encode())
+            h.update(json.dumps(code_dependencies(cls)).encode())
         _CODE_FP[key] = h.hexdigest()[:16]
     return _CODE_FP[key]
 
@@ -147,9 +200,11 @@ class Stage:
     outputs: dict[str, str] = {}
     optional_inputs: tuple[str, ...] = ()
     cache: bool = True
-    # Code in the cache key: the stage's own source always; the modules.* files it imports too,
-    # unless hash_modules is False (expensive model stages: separation, ASR, pitch trackers keep
-    # their caches across unrelated edits and rely on `version` bumps instead).
+    # Code in the cache key: the stage's own source always; every modules.* file it depends on
+    # (transitively) too, unless hash_modules is False. Expensive model stages (separation, ASR,
+    # pitch trackers) opt out so an unrelated edit doesn't cost an hour of recomputation; when their
+    # code changed since a cache entry was written, the run warns and names the files instead
+    # (recompute with the step's `fresh` override, or bump `version` for a real change).
     hash_modules: bool = True
 
     @dataclass
@@ -164,8 +219,21 @@ class Stage:
         if unknown:
             raise ValueError(f"{self.id}: unknown parameter(s) {sorted(unknown)}; known: {sorted(fields)}")
         self.params = self.Params(**(params or {}))
-        self.input_names = {**self.inputs, **(inputs or {})}
-        self.output_names = {**self.outputs, **(outputs or {})}
+        # declared specs ("a|b" alternatives, "@slot" = same artifact as that input slot) ...
+        self.input_specs = {**self.inputs, **(inputs or {})}
+        self.output_specs = {**self.outputs, **(outputs or {})}
+        # ... and the concrete artifact names, set by Pipeline.bind()
+        self.input_names = {k: v.split("|")[0] for k, v in self.input_specs.items()}
+        self.output_names = {k: v for k, v in self.output_specs.items() if not v.startswith("@")}
+
+    def bind(self, produced: list[str]) -> None:
+        """Pick concrete artifacts: for alternatives, the one produced most recently."""
+        for slot, spec in self.input_specs.items():
+            options = spec.split("|")
+            latest = next((a for a in reversed(produced) if a in options), None)
+            self.input_names[slot] = latest or options[0]
+        self.output_names = {slot: (self.input_names[spec[1:]] if spec.startswith("@") else spec)
+                             for slot, spec in self.output_specs.items()}
 
     def run(self, ctx: Context, **inputs) -> dict:  # pragma: no cover - interface
         raise NotImplementedError
@@ -225,15 +293,76 @@ class Pipeline:
                 raise KeyError(f"unknown stage '{s.use}'; registered: {sorted(REGISTRY)}")
             self.stages.append(REGISTRY[s.use](s.params, s.inputs, s.outputs, id=s.id or s.use))
 
-    def validate(self, initial: set[str]) -> list[str]:
+    def bind(self, initial) -> None:
+        produced = list(initial)
+        for st in self.stages:
+            st.bind(produced)
+            for art in st.output_names.values():
+                if art in produced:
+                    produced.remove(art)
+                produced.append(art)
+
+    def validate(self, initial) -> list[str]:
         """Return problems (empty list = runnable): inputs that no earlier stage provides."""
+        self.bind(initial)
         have, problems = set(initial), []
         for st in self.stages:
             for slot, art in st.input_names.items():
                 if art not in have and slot not in st.optional_inputs:
-                    problems.append(f"{st.id}: input '{slot}' needs '{art}', not provided before this step")
+                    alts = st.input_specs[slot].replace("|", " or ")
+                    problems.append(f"{st.id}: input '{slot}' needs {alts}, not provided before this step")
             have |= set(st.output_names.values())
         return problems
+
+    def unused_outputs(self, initial) -> list[str]:
+        """Steps whose output nothing reads afterwards (type-checks, but has no effect)."""
+        self.bind(initial)
+        notes = []
+        for i, st in enumerate(self.stages):
+            for art in st.output_names.values():
+                if art.startswith("file.") or art.startswith("aux."):
+                    continue
+                later = self.stages[i + 1:]
+                read = any(art in s.input_names.values() for s in later)
+                overwritten_first = next((s for s in later if art in s.output_names.values()
+                                          and art not in s.input_names.values()), None)
+                if not read or (overwritten_first is not None and not any(
+                        art in s.input_names.values() for s in later[:later.index(overwritten_first)])):
+                    notes.append(f"{st.id}: nothing reads '{art}' afterwards")
+        return notes
+
+    def where(self, step_id: str, initial) -> list[int]:
+        """Positions (index in the step list) where step_id could run with every input available."""
+        idx = next((i for i, st in enumerate(self.stages) if st.id == step_id), None)
+        if idx is None:
+            raise ValueError(f"no step '{step_id}'; steps: {[st.id for st in self.stages]}")
+        others = self.stages[:idx] + self.stages[idx + 1:]
+        ok = []
+        for pos in range(len(others) + 1):
+            trial = Pipeline.__new__(Pipeline)
+            trial.name, trial.stages = self.name, others[:pos] + [self.stages[idx]] + others[pos:]
+            if not trial.validate(initial):
+                ok.append(pos)
+        self.bind(initial)
+        return ok
+
+    def describe_positions(self, step_id: str, initial) -> str:
+        others = [st.id for st in self.stages if st.id != step_id]
+        valid = set(self.where(step_id, initial))
+        idx = next(i for i, st in enumerate(self.stages) if st.id == step_id)
+        rest = self.stages[:idx] + self.stages[idx + 1:]
+        lines = []
+        for pos in range(len(others) + 1):
+            mark = ""
+            if pos in valid:
+                trial = Pipeline.__new__(Pipeline)
+                trial.name, trial.stages = self.name, rest[:pos] + [self.stages[idx]] + rest[pos:]
+                dead = [n for n in trial.unused_outputs(initial) if n.startswith(step_id + ":")]
+                mark = "  <- ok" + ("  (but nothing reads its output afterwards)" if dead else "")
+            after = others[pos - 1] if pos else "(start)"
+            lines.append(f"after {after}{mark}")
+        self.bind(initial)
+        return "\n".join(lines)
 
     def run(self, ctx: Context, store: dict) -> dict:
         problems = self.validate(set(store))
@@ -258,16 +387,26 @@ class Pipeline:
                 _record_lineage(path, chain, self.name)
             from pipeline.log import get as get_logger, stage_scope
             key = os.path.basename(path)[:-4] if path else None
-            if path and os.path.exists(path):
+            fresh = st.id in ctx.extra.get("fresh", ())
+            if path and os.path.exists(path) and not fresh:
                 with open(path, "rb") as f:
                     result = pickle.load(f)
                 get_logger(f"stage.{st.id}").info(f"{st.id}: cached",
                                                   extra={"stage": st.id, "event": "cached", "cache_key": key})
+                if not st.hash_modules:
+                    changed = _code_changed(path, code_dependencies(type(st)))
+                    if changed:
+                        get_logger(f"stage.{st.id}").warning(
+                            f"{st.id}: cached result was made with different code in {', '.join(changed)}; "
+                            f"reusing it. Recompute with --fresh {st.id} (or bump the stage's version).",
+                            extra={"stage": st.id, "event": "stale_code"})
             else:
                 with stage_scope(st.id, key, ctx.verbose):
                     result = st.run(ctx, **copy.deepcopy(args)) or {}
                 if path:
                     _atomic_pickle(path, result)
+                    _atomic_json(path[:-4] + ".code.json", {"created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                                            "files": code_dependencies(type(st))})
             missing = set(st.outputs) - set(result)
             if missing:
                 raise RuntimeError(f"{st.id} did not return {sorted(missing)}")
@@ -295,6 +434,24 @@ def _atomic_pickle(path: str, obj) -> None:
     os.replace(tmp, path)
 
 
+def _atomic_json(path: str, obj) -> None:
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=1)
+    os.replace(tmp, path)
+
+
+def _code_changed(pkl_path: str, current: dict[str, str]) -> list[str]:
+    """Files whose content differs from when the cache entry was written (unknown = no warning)."""
+    side = pkl_path[:-4] + ".code.json"
+    try:
+        with open(side, encoding="utf-8") as f:
+            then = json.load(f).get("files", {})
+    except (OSError, ValueError, AttributeError):
+        return []
+    return sorted(k for k in set(then) | set(current) if then.get(k) != current.get(k))
+
+
 def _record_lineage(pkl_path: str, chain: list, preset: str) -> None:
     """Sidecar <cache>.lineage.json: every step order + settings that produced this cache entry.
     The cache key stays content-based (same inputs + params = reuse, whatever the order);
@@ -311,7 +468,7 @@ def _record_lineage(pkl_path: str, chain: list, preset: str) -> None:
     if any(e.get("chain") == chain for e in entries):
         return
     entries.append({"preset": preset, "order": order, "chain": chain,
-                    "created": __import__("time").strftime("%Y-%m-%d %H:%M:%S")})
+                    "created": time.strftime("%Y-%m-%d %H:%M:%S")})
     tmp = f"{side}.tmp{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(entries, f, indent=1, default=str)
@@ -322,8 +479,12 @@ def _record_lineage(pkl_path: str, chain: list, preset: str) -> None:
 
 def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
     """Preset = {name, steps: [{use, id?, params?, inputs?, outputs?, enabled?}]}.
-    Overrides: 'step_id.param=value' (YAML-parsed value), 'step_id.enabled=false',
-    or '-step_id' to drop a step."""
+    Overrides, applied in order:
+      step.param=value        change a parameter (YAML-parsed value)
+      step.use=other_stage    swap the stage (parameters reset to the new stage's defaults)
+      step.after=other        move a step (also step.before=other)
+      -step                   drop a step
+      +stage[#id][@after=step|@before=step]   insert a step (appended without a position)"""
     import yaml
 
     if isinstance(path_or_dict, dict):
@@ -333,7 +494,30 @@ def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
             preset = yaml.safe_load(f)
     steps = [StepSpec(**s) for s in preset["steps"]]
     by_id = {(s.id or s.use): s for s in steps}
+
+    def place(spec, where, ref, ov):
+        if ref not in by_id:
+            raise ValueError(f"override '{ov}': no step '{ref}' in preset; steps: {sorted(by_id)}")
+        if spec in steps:
+            steps.remove(spec)
+        i = steps.index(by_id[ref])
+        steps.insert(i + 1 if where == "after" else i, spec)
+
     for ov in overrides or []:
+        if ov.startswith("+"):  # insert: +stage[#id][@after=step|@before=step]
+            m = re.match(r"\+([\w.]+)(?:#([\w.]+))?(?:@(after|before)=([\w.]+))?$", ov)
+            if not m:
+                raise ValueError(f"override '{ov}': expected +stage[#id][@after=step|@before=step]")
+            spec = StepSpec(use=m.group(1), id=m.group(2))
+            sid = spec.id or spec.use
+            if sid in by_id:
+                raise ValueError(f"override '{ov}': step '{sid}' exists; give the new one an id with #id")
+            by_id[sid] = spec
+            if m.group(3):
+                place(spec, m.group(3), m.group(4), ov)
+            else:
+                steps.append(spec)
+            continue
         if ov.startswith("-"):
             if ov[1:] not in by_id:
                 raise ValueError(f"override '{ov}': no step '{ov[1:]}' in preset; steps: {sorted(by_id)}")
@@ -346,7 +530,9 @@ def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
         if step_id not in by_id:
             raise ValueError(f"override '{ov}': no step '{step_id}' in preset; steps: {sorted(by_id)}")
         parsed = yaml.safe_load(value)
-        if key == "enabled":
+        if key in ("after", "before"):  # move the step
+            place(by_id[step_id], key, str(parsed), ov)
+        elif key == "enabled":
             by_id[step_id].enabled = bool(parsed)
         elif key == "use":  # swap the stage; its parameters start from the new stage's defaults
             by_id[step_id].use = parsed

@@ -35,15 +35,19 @@ class SeparateVocals(Stage):
         model: str = "htdemucs_ft"            # demucs model
         separator_model: str | None = None    # audio-separator model file (replaces demucs)
         second_pass: str | None = None        # lead-vocal / de-reverb model on the vocals
+        shifts: int = 1                       # demucs: average over this many randomly shifted passes
+        seed: int = 0                         # seed of those random shifts (reproducible runs)
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
         from pipeline.core import fingerprint
-        # the separation module caches by file name; a folder per input content keeps it honest
-        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}")
-        folder = separate_vocal_from_audio(work, audio, True, True, ctx.device,
-                                           DemucsModel(self.params.model), False,
-                                           self.params.separator_model, self.params.second_pass)
+        p = self.params
+        # the separation module caches by file name; a folder per input content (and per shift
+        # setting, if not the default) keeps it honest
+        tag = "" if (p.shifts, p.seed) == (1, 0) else f"_s{p.shifts}r{p.seed}"
+        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}{tag}")
+        folder = separate_vocal_from_audio(work, audio, True, True, ctx.device, DemucsModel(p.model), False,
+                                           p.separator_model, p.second_pass, p.shifts, p.seed)
         return {"vocals": os.path.join(folder, "vocals.wav"),
                 "instrumental": os.path.join(folder, "no_vocals.wav")}
 
@@ -194,8 +198,8 @@ class CorrectWithLyrics(Stage):
 class StripPunctuation(Stage):
     """words -> words without '.' and ','. Text in, text out."""
     name = "words.strip_punctuation"
-    inputs = {"words": "words"}
-    outputs = {"words": "words"}
+    inputs = {"words": "words|syllables"}   # works on whichever text level is current
+    outputs = {"words": "@words"}
     cache = False
 
     def run(self, ctx, words):
@@ -273,8 +277,8 @@ class Hyphenate(Stage):
 class SilenceSplit(Stage):
     """syllables -> syllables split where the processed audio is muted."""
     name = "syllables.silence_split"
-    inputs = {"syllables": "syllables", "audio": "audio.processed"}
-    outputs = {"syllables": "syllables"}
+    inputs = {"syllables": "syllables|words", "audio": "audio.processed"}
+    outputs = {"syllables": "@syllables"}
 
     def run(self, ctx, syllables, audio):
         from modules.Audio.silence_processing import remove_silence_from_transcription_data
@@ -358,8 +362,8 @@ class SegmentGAME(Stage):
     """syllables -> syllables split at GAME note boundaries (+ GAME's note pitches in aux.game)."""
     name = "segment.game"
     version = "3"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (was random per run)
-    inputs = {"syllables": "syllables", "audio": "audio.vocals", "language": "language"}
-    outputs = {"syllables": "syllables", "game": "aux.game"}
+    inputs = {"syllables": "syllables|words", "audio": "audio.vocals", "language": "language"}
+    outputs = {"syllables": "@syllables", "game": "aux.game"}
 
     @dataclass
     class Params:
@@ -381,8 +385,8 @@ class SegmentGAME(Stage):
 @stage
 class SegmentContour(Stage):
     name = "segment.contour"
-    inputs = {"syllables": "syllables", "pitch": "pitch"}
-    outputs = {"syllables": "syllables"}
+    inputs = {"syllables": "syllables|words", "pitch": "pitch"}
+    outputs = {"syllables": "@syllables"}
 
     @dataclass
     class Params:
@@ -402,8 +406,8 @@ class SegmentContour(Stage):
 class SegmentGrid(Stage):
     """The original 16th-note grid split."""
     name = "segment.grid"
-    inputs = {"syllables": "syllables", "tempo": "tempo"}
-    outputs = {"syllables": "syllables"}
+    inputs = {"syllables": "syllables|words", "tempo": "tempo"}
+    outputs = {"syllables": "@syllables"}
 
     def run(self, ctx, syllables, tempo):
         from modules.Midi.segmentation import split_syllables_into_segments
@@ -416,7 +420,7 @@ class SegmentGrid(Stage):
 class NotesFromPitch(Stage):
     """syllables + pitch track (+ key) -> notes, one per syllable piece."""
     name = "notes.from_pitch"
-    inputs = {"syllables": "syllables", "pitch": "pitch", "key": "key"}
+    inputs = {"syllables": "syllables|words", "pitch": "pitch", "key": "key"}
     outputs = {"notes": "notes"}
 
     @dataclass
@@ -462,8 +466,8 @@ class NotesGamePitch(Stage):
 class MergeNotes(Stage):
     """notes + syllables -> notes with slides / same-pitch syllables merged (original logic)."""
     name = "notes.merge"
-    inputs = {"notes": "notes", "syllables": "syllables", "tempo": "tempo"}
-    outputs = {"notes": "notes", "syllables": "syllables"}
+    inputs = {"notes": "notes", "syllables": "syllables|words", "tempo": "tempo"}
+    outputs = {"notes": "notes", "syllables": "@syllables"}
 
     @dataclass
     class Params:

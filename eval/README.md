@@ -18,6 +18,7 @@ steps can be dropped:
 ```bash
 python eval/run_eval.py ... --name game03 --set segment.game.boundary_threshold=0.3
 python eval/run_eval.py ... --name nosnap --set=-notes.snap_edges
+python eval/run_eval.py ... --name late --set words.strip_punctuation.after=syllables.hyphenate
 python eval/batch_eval.py --songs eval_singstar/bench --work eval_work_ng --prefix gt --preset bench \
     --gt-language --config base: --config t03:segment.game.boundary_threshold=0.3
 ```
@@ -85,8 +86,10 @@ Repitch mode: `note_chroma_acc`, `note_chroma_acc_pm1`,
 Each song gets `<work>/cache/<song>/`, shared by all runs. Every stage result is cached under a key
 made of: stage name, version and parameters, the content of its inputs, the upstream chain of steps
 (order matters; `--cache-by content` ignores it), the stage's source code (and the `modules.*`
-files it imports, except for the expensive model stages), and the content of model files given as
-parameters. Each cache file has a `.lineage.json` with every step order that produced it.
+files it depends on, transitively), and the content of model files given as parameters. Expensive
+model stages (separation, Whisper, pitch) keep their cache across code edits; when the code behind
+such an entry changed, the run warns and names the files (`--fresh STEP` recomputes). Each cache
+file has a `.lineage.json` (step orders, timestamps) and a `.code.json` (code it was made with).
 
 ## Notes
 

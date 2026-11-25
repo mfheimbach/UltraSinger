@@ -86,7 +86,8 @@ def _num(value: str) -> float:
 
 
 def _read_text(path: str) -> str:
-    raw = open(path, "rb").read()
+    with open(path, "rb") as f:
+        raw = f.read()
     for enc in ("utf-8-sig", "cp1252", "latin-1"):
         try:
             return raw.decode(enc)

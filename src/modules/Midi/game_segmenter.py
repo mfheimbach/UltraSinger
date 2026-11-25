@@ -26,7 +26,8 @@ MAX_CHUNK_SECONDS = 30.0  # default; attention cost grows with length, long audi
 class GameModel:
     def __init__(self, model_dir: str, device: str = "cpu", seed: int = 0):
         import onnxruntime as ort
-        self.config = json.load(open(os.path.join(model_dir, "config.json")))
+        with open(os.path.join(model_dir, "config.json"), encoding="utf-8") as f:
+            self.config = json.load(f)
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
         opts = ort.SessionOptions()
         opts.use_deterministic_compute = True

@@ -47,7 +47,8 @@ def language_code(name: str) -> str:
 
 def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: list[str],
                gt_language: bool = False, verbose: bool = False, cache_by: str = "lineage",
-               mode: str = "full", gt_path: str | None = None, oracle_lyrics: bool = False) -> str:
+               mode: str = "full", gt_path: str | None = None, oracle_lyrics: bool = False,
+               fresh: tuple[str, ...] = ()) -> str:
     """Run a preset on the chart's audio. Returns the written txt (also recorded in run_info.json)."""
     import yaml
     from pipeline.run import preset_path, run_song
@@ -67,7 +68,7 @@ def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: li
     store = run_song(os.path.abspath(gt.audio_path()), spec, overrides, os.path.abspath(out),
                      os.path.abspath(cache), "cpu", gt.artist, gt.title, copy_audio=False, verbose=verbose,
                      cache_by=cache_by, chart=os.path.abspath(gt_path) if mode == "repitch" else None,
-                     extra=extra)
+                     extra=extra, fresh=fresh)
     txt = store["file.txt"]
     with open(os.path.join(out, "run_info.json"), "w", encoding="utf-8") as f:
         json.dump({"txt": os.path.abspath(txt), "mode": mode, "preset": spec.get("name"),

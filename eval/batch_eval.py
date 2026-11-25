@@ -42,6 +42,7 @@ def main() -> None:
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--preset", default="bench", help="pipeline preset (presets/*.yaml)")
     ap.add_argument("--gt-language", action="store_true", help="take the language from the chart")
+    ap.add_argument("--fresh", action="append", default=[], metavar="STEP", help="recompute STEP, ignoring its cache")
     ap.add_argument("--cache-by", choices=["lineage", "content"], default="lineage",
                     help="lineage (default): step order is part of the cache key; content: steps whose inputs "
                          "are identical share cache entries regardless of how they were produced")
@@ -78,11 +79,12 @@ def main() -> None:
                         ov += [f"tempo.scale={scale}"] if scale is not None else []
                         run_preset(usdx.read(txt), out, os.path.join(work, "cache", slug(song_name)),
                                    args.preset, ov, gt_language=args.gt_language or "gt_language=true" in overrides,
-                                   verbose=args.verbose, cache_by=args.cache_by)
+                                   verbose=args.verbose, cache_by=args.cache_by, fresh=tuple(args.fresh))
                     per_scale.append(score_one("full", song_name, txt, os.path.dirname(out)))
                 except Exception as e:  # keep going
                     per_scale.append({"song": song_name, "error": repr(e)})
-                open(os.path.join(out, "run.log"), "w", encoding="utf-8").write(log.getvalue())
+                with open(os.path.join(out, "run.log"), "w", encoding="utf-8") as f:
+                    f.write(log.getvalue())
             good = [r for r in per_scale if "error" not in r]
             if not good:
                 rows.append(per_scale[0])
