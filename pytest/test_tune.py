@@ -196,3 +196,10 @@ def test_resume_appends_report_and_trials(tmp_path):
     assert "## 1. one" in text and "## 2. two" not in text and "## Result" not in text
     assert [r["group"] for r in rows] == ["one"]
     assert overrides == ["a=1"]
+
+
+def test_edge_hits_flag_values_at_the_range_bounds():
+    dims = tune.parse_search({"notes.calibrate.end_extension": {"low": 0.0, "high": 0.2},
+                              "notes.calibrate.offset": {"low": -0.15, "high": 0.0}})
+    hits = tune.edge_hits(dims, ["notes.calibrate.end_extension=0.1919", "notes.calibrate.offset=-0.07"])
+    assert len(hits) == 1 and hits[0].startswith("notes.calibrate.end_extension")

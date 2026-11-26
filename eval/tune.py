@@ -551,6 +551,19 @@ def boot_ci(x: np.ndarray, n: int = BOOT_SAMPLES) -> tuple[float, float]:
     return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
 
 
+def edge_hits(dims: list[Dim], overrides: list[str], share: float = 0.05) -> list[str]:
+    """Range dimensions whose chosen value lies within `share` of the range from a bound."""
+    chosen = dict(o.split("=", 1) for o in overrides)
+    out = []
+    for d in dims:
+        if d.kind == "choice" or d.key not in chosen:
+            continue
+        v, span = float(chosen[d.key]), d.high - d.low
+        if v <= d.low + share * span or v >= d.high - share * span:
+            out.append(f"{d.key}={v:g} (range {d.low:g}..{d.high:g})")
+    return out
+
+
 def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds: int, seed: int,
               report: list[str], title: str, sampler: str, stop: dict, spec: dict) -> dict:
     """Tune one group of dimensions (CV estimate + final in-sample config). Returns the result.
@@ -612,6 +625,12 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
                tail_start=tail_start, dims=(expensive, cheap))
     report += [f"config tuned on all songs (scored on the same songs, optimistic): {base_v.mean():.4f} -> "
                f"{tuned_v.mean():.4f}", "", "```"] + best_ov + ["```"]
+    edges = edge_hits(dims, best_ov)
+    if edges:
+        report += ["", "at the edge of the search range (widen the range, or check that the objective doesn't "
+                       "reward this direction for free): " + ", ".join(edges)]
+        import logging
+        logging.getLogger("ultrasinger.tune").warning(f"search range edge: {', '.join(edges)}")
     if study is not None and len(dims) > 1 and len(rows) > 3:
         try:
             import optuna
