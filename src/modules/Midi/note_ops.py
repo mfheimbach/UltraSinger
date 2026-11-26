@@ -9,12 +9,23 @@ from modules.Pitcher.pitched_data import PitchedData
 from modules.Speech_Recognition.TranscribedData import TranscribedData
 
 
+def trim_overlaps(items):
+    """Shallow copies of time-sorted items (syllables or notes) with each end cut back to the next start.
+    Onsets are the reliable edge (on the bench: median onset error 46 ms vs 115 ms for ends, ends biased
+    late), so where two items overlap the earlier one gives way."""
+    import copy
+    out = [copy.copy(x) for x in items]
+    for a, b in zip(out, out[1:]):
+        if a.end > b.start:
+            a.end = b.start
+    return out
+
+
 def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offset: float):
     from modules.Audio.key_detector import quantize_note_to_key
     if len(midi_segments) != len(game_pitches):
-        import logging
-        logging.getLogger("ultrasinger.notes").warning("GAME pitch count mismatch, keeping pitch-track notes")
-        return
+        raise ValueError(f"GAME pitches ({len(game_pitches)}) and notes ({len(midi_segments)}) don't line up: "
+                         "notes.game_pitch must follow notes.from_pitch on the same syllables")
     for seg, midi in zip(midi_segments, game_pitches):
         if midi is None:
             continue
@@ -67,20 +78,23 @@ def snap_note_edges(midi_segments: list[MidiSegment], pitched_data: PitchedData,
             seg.end = t
 
 
-def apply_timing_calibration(midi_segments: list[MidiSegment], offset: float, end_extension: float) -> None:
-    """Shift all notes by offset and lengthen them by end_extension, without overlaps."""
+def apply_timing_calibration(midi_segments: list[MidiSegment], offset: float, end_extension: float,
+                             min_len: float) -> None:
+    """Shift all notes by offset and lengthen them by end_extension, without overlaps (the next onset wins
+    over the minimum length)."""
     for i, seg in enumerate(midi_segments):
         seg.start = max(0.0, seg.start + offset)
-        end = seg.end + offset + end_extension
+        end = max(seg.end + offset + end_extension, seg.start + min_len)
         if i + 1 < len(midi_segments):
-            end = min(end, midi_segments[i + 1].start + offset)
-        seg.end = max(end, seg.start + 0.01)
+            end = min(end, max(0.0, midi_segments[i + 1].start + offset))
+        seg.end = end
 
 
 def merge_syllable_segments(midi_segments: list[MidiSegment],
                             transcribed_data: list[TranscribedData],
                             real_bpm: float, slides: bool, same_pitch_syllables: bool,
-                            slide_max_semitones: int) -> tuple[list[MidiSegment], list[TranscribedData]]:
+                            slide_max_semitones: int, slide_max_sixteenths: float,
+                            breath_pause_sixteenths: float) -> tuple[list[MidiSegment], list[TranscribedData]]:
     """Merge sub-segments of a syllable where the pitch is the same
 
     This function handles three cases:
@@ -91,7 +105,7 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
 
     sixteenth_note = get_sixteenth_note_second(real_bpm)
     # Slides are typically very short (1-2 16th notes)
-    max_slide_duration = sixteenth_note * 2
+    max_slide_duration = sixteenth_note * slide_max_sixteenths
 
     new_data = []
     new_midi_notes = []
@@ -104,7 +118,7 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
         has_breath_pause = False
 
         if previous_data is not None:
-            has_breath_pause = (data.start - previous_data.end) > sixteenth_note
+            has_breath_pause = (data.start - previous_data.end) > sixteenth_note * breath_pause_sixteenths
 
         # Check if current word is a ~ segment (continuation marker)
         current_word_stripped = str(data.word).strip()

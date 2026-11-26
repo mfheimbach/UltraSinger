@@ -63,6 +63,7 @@ def create_ultrastar_txt_from_automation(
         format_version: FormatVersion,
         create_karaoke: bool,
         app_version: str,
+        max_bpm: float,
 ):
     """Create Ultrastar txt from automation"""
     log.info(f"Using UltraStar {blue_highlighted(f'Format Version {format_version.value}')}")
@@ -106,6 +107,7 @@ def create_ultrastar_txt_from_automation(
         ultrastar_file_output_path,
         ultrastar_txt,
         media_info.bpm,
+        max_bpm,
     )
     if create_karaoke and version.parse(format_version.value) < version.parse(FormatVersion.V1_1_0.value):
         title = basename + " [Karaoke]"
@@ -118,6 +120,7 @@ def create_ultrastar_txt_from_automation(
             karaoke_txt_output_path,
             ultrastar_txt,
             media_info.bpm,
+            max_bpm,
         )
     if version.parse(format_version.value) < version.parse(FormatVersion.V1_2_0.value):
         ultrastar_txt.videoUrl = media_info.video_url

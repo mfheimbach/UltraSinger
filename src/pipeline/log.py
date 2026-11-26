@@ -57,8 +57,28 @@ def _short(msg: str) -> str:
     return (origin + first)[:180]
 
 
+_NUM = re.compile(r"\[\d+\]|-?\d+(\.\d+)?")
+
+
+def _kind(record) -> str:
+    """A repeated warning's identity: logger + text with numbers and indices blanked."""
+    return record.name + ":" + _NUM.sub("#", record.getMessage().split(";")[0])
+
+
+_repeats: dict[str, int] = {}
+
+
+def repeats_summary(clear: bool = True) -> list[str]:
+    """Lines describing warnings that were shown once and then only counted."""
+    out = [f"{n}x more: {k.split(':', 1)[1]}" for k, n in sorted(_repeats.items(), key=lambda kv: -kv[1]) if n]
+    if clear:
+        _repeats.clear()
+    return out
+
+
 class _ConsoleFilter(logging.Filter):
-    """Our records by level; third-party records: errors always, warnings once per distinct text.
+    """Our records by level, but contract warnings and fallbacks once per kind (then counted, see
+    repeats_summary); third-party records: errors always, warnings once per distinct text.
     Captured stage output (ultrasinger.stage.*.output, DEBUG) only shows in debug mode."""
 
     def __init__(self):
@@ -69,6 +89,14 @@ class _ConsoleFilter(logging.Filter):
         if _state["debug"]:
             return True
         if _ours(record):
+            if record.levelno == logging.WARNING and (getattr(record, "event", None) == "contract"
+                                                      or record.getMessage().startswith("FALLBACK")):
+                key = _kind(record)
+                if key in self.seen:
+                    _repeats[key] = _repeats.get(key, 0) + 1
+                    return False
+                self.seen.add(key)
+                _repeats.setdefault(key, 0)
             return record.levelno >= (logging.INFO if _state["verbose"] else logging.WARNING)
         if record.levelno >= logging.ERROR:
             return True

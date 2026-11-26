@@ -90,8 +90,12 @@ def check(artifact: str, value) -> list[str]:
     kind = artifact.split(".", 1)[0]
     if value is None:
         return []
-    if kind in ("words", "syllables"):
-        # syllables may touch or overlap slightly at word joins (aligner output); order must hold
+    if kind == "words":
+        # words may overlap (aligner output) and may be untimed (start = end = None) until
+        # words.place_untimed; order must hold among the timed ones
+        return check_timed([w for w in value if not (w.start is None and w.end is None)], kind, allow_overlap=True)
+    if kind == "syllables":
+        # syllables may overlap until syllables.trim_overlaps; order must hold
         return check_timed(value, kind, allow_overlap=True)
     if kind == "notes":
         return check_notes(value)

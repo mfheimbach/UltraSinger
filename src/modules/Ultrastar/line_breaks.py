@@ -28,9 +28,9 @@ log = logging.getLogger("ultrasinger.line_breaks")
 
 @dataclass
 class LineBreakModel:
-    """log-odds(break) = intercept + w_pause * log(pause + 0.02) + w_punct * logit(p_punct), plus a
-    prior on line length (characters: normal; duration: log-normal) from the charts. Values come
-    from the preset (fitted with eval/fit_line_breaks.py)."""
+    """log-odds(break) = intercept + w_pause * log(pause + pause_floor) + w_punct * logit(p_punct), plus
+    a prior on line length (characters: normal; duration: log-normal) from the charts. Values come
+    from the preset."""
     intercept: float
     w_pause: float
     w_punct: float
@@ -41,6 +41,11 @@ class LineBreakModel:
     dur_log_sd: float
     prior_weight: float
     max_words: int
+    pause_floor: float     # s added to pauses before the log
+    prob_floor: float      # punctuation probabilities clipped to [prob_floor, 1 - prob_floor]
+    dur_floor: float       # shortest line duration (s) for the prior
+    punct_chunk: int       # words per punctuation-model call
+    punct_context: int     # words of context on each side of a chunk
 
 
 def _words(midi_segments: list[MidiSegment]) -> list[tuple[int, int, float, float, str]]:
@@ -55,15 +60,17 @@ def _words(midi_segments: list[MidiSegment]) -> list[tuple[int, int, float, floa
 
 
 _PUNCT_MEMO: dict = {}
+PUNCT_MEMO_MAX = 2000      # memo entries (resource limit)
+MAX_TOKENS = 512           # the punctuation model's input limit
 
 
-def punctuation_probabilities(words: list[str], model_name: str, device: str = "cpu",
-                              chunk: int = 150, context: int = 30) -> np.ndarray:
+def punctuation_probabilities(words: list[str], model_name: str, device: str, chunk: int,
+                              context: int) -> np.ndarray:
     """P(punctuation after each word) from a token-classification punctuation model.
     Memoized per word sequence within a process (tuning runs plan the same text many times)."""
-    key = (tuple(words), model_name)
+    key = (tuple(words), model_name, chunk, context)
     if key not in _PUNCT_MEMO:
-        if len(_PUNCT_MEMO) > 2000:
+        if len(_PUNCT_MEMO) > PUNCT_MEMO_MAX:
             _PUNCT_MEMO.clear()
         _PUNCT_MEMO[key] = _punctuation_probabilities(words, model_name, device, chunk, context)
     return _PUNCT_MEMO[key].copy()
@@ -82,7 +89,7 @@ def _punctuation_probabilities(words, model_name, device, chunk, context) -> np.
     while i < len(cleaned):
         a, b = max(0, i - context), min(len(cleaned), i + chunk)
         enc = tokenizer(cleaned[a:b + context], is_split_into_words=True, return_tensors="pt",
-                        truncation=True, max_length=512).to(device)
+                        truncation=True, max_length=MAX_TOKENS).to(device)
         with torch.no_grad():
             probs = model(**enc).logits[0].softmax(-1).cpu().numpy()
         last_token = {}
@@ -97,22 +104,19 @@ def _punctuation_probabilities(words, model_name, device, chunk, context) -> np.
     return out
 
 
-def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: str, m: LineBreakModel,
-                     bonus_starts: set[int] | None = None, bonus: float = 0.0) -> None:
-    """Set line_start on the first note of each planned line. bonus_starts: segment indices that
-    get an extra break score (e.g. LRCLIB line starts)."""
+def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: str, m: LineBreakModel) -> None:
+    """Set line_start on the first note of each planned line."""
     words = _words(midi_segments)
     n = len(words)
     if n < 2:
         return
     log.info(f"Planning line breaks with {blue_highlighted(model_name)}")
-    p = np.clip(punctuation_probabilities([w[4] for w in words], model_name, device), 1e-3, 1 - 1e-3)
+    p = np.clip(punctuation_probabilities([w[4] for w in words], model_name, device, m.punct_chunk, m.punct_context),
+                m.prob_floor, 1 - m.prob_floor)
     score = [0.0] * n
     for i in range(1, n):
         pause = max(0.0, words[i][2] - words[i - 1][3])
-        score[i] = m.intercept + m.w_pause * math.log(pause + 0.02) + m.w_punct * math.log(p[i - 1] / (1 - p[i - 1]))
-        if bonus_starts and words[i][0] in bonus_starts:
-            score[i] += bonus
+        score[i] = m.intercept + m.w_pause * math.log(pause + m.pause_floor) + m.w_punct * math.log(p[i - 1] / (1 - p[i - 1]))
     chars = [0]
     for w in words:
         chars.append(chars[-1] + len(w[4]))
@@ -123,7 +127,7 @@ def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: 
             c = chars[b] - chars[a] + (b - 1 - a)
             if c > m.chars_max and b - 1 > a:
                 continue
-            dur = max(0.05, words[b - 1][3] - words[a][2])
+            dur = max(m.dur_floor, words[b - 1][3] - words[a][2])
             prior = -0.5 * ((c - m.chars_mean) / m.chars_sd) ** 2 - 0.5 * ((math.log(dur) - math.log(m.dur_median)) / m.dur_log_sd) ** 2
             s = best[a] + m.prior_weight * prior + (score[a] if a > 0 else 0.0)
             if s > best[b]:
@@ -136,3 +140,33 @@ def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: 
         if a > 0:
             midi_segments[words[a][0]].line_start = True
         b = a
+
+
+def pause_threshold(gaps: list[float], min_gaps: int) -> float:
+    """Mean gap without the longest one(s); 0 with fewer than min_gaps gaps (every gap breaks)."""
+    if len(gaps) < min_gaps:
+        return 0.0
+    longest = max(gaps)
+    kept = [g for g in gaps if g < longest]
+    return sum(kept) / len(kept) if sum(kept) != 0 else 0.0
+
+
+def plan_pause_breaks(midi_segments: list[MidiSegment], min_gaps: int) -> None:
+    """The original pause rule: a line starts after a word whose following gap (or a gap inside the
+    word) is longer than the mean gap without the longest one(s). With fewer than min_gaps gaps the
+    threshold is 0 and every gap breaks."""
+    gaps = [b.start - a.end for a, b in zip(midi_segments, midi_segments[1:])]
+    threshold = pause_threshold(gaps, min_gaps)
+    for seg in midi_segments:
+        seg.line_start = False
+    inside = []   # gaps inside the current word
+    last = len(midi_segments) - 1
+    for i, seg in enumerate(midi_segments):
+        gap = gaps[i] if i < last else 0.0
+        if not seg.word.endswith(" "):
+            inside.append(gap)
+            continue
+        brk = (i != last and threshold != 0 and gap > threshold) or any(g > threshold for g in inside)
+        if brk and i < last:
+            midi_segments[i + 1].line_start = True
+        inside = []

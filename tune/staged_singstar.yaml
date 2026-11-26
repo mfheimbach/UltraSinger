@@ -5,16 +5,22 @@
 # (note stages, line breaks) are searched jointly with TPE.
 name: staged_singstar
 base: bench
-overrides: [notes.line_breaks.enabled=true]   # tune line breaks too (bench drops them)
+overrides: [notes.line_breaks.use=notes.line_breaks]   # tune planned line breaks too (bench uses the pause rule)
 data:
   train: eval_singstar/bench
+  holdout: eval_singstar/selection   # mandatory; disjoint from train, scored once at the end
   folds: 3
   gt_language: true
 objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}
 # noise levels per engine come from tune/noise.yaml (see there)
 noise_sigma: 1.0    # threshold = 1 noise SD
 min_gain: 0.001     # absolute floor (scale of the objective)
+fold_gate: true     # inside CV folds, leave the base only for gains beyond the threshold too
+sampler: auto       # grid when everything is discrete and fits the budget, else TPE
+trials: 50          # per group unless the group sets its own
 stop: {patience: 30}   # search ends at trials, or no gain > min gain for 30 trials, whichever first
+coordinate_points: 7   # values per continuous dimension for coordinate descent
+cost: {cheap_seconds: 3.0, unknown_seconds: 1.0}   # rerun cost per 30 s audio that counts as cheap
 stages:
   - name: separation model
     search:
@@ -40,7 +46,10 @@ stages:
       syllables.silence_split.min_silence_ms: [25, 50, 100]
   - name: segmentation module
     search:
-      segment.game.use: [segment.game, "segment.contour; -notes.game_pitch"]   # contour has no GAME pitches
+      segment.game.use:
+        segment.game: {}
+        segment.contour:
+          notes.game_pitch.enabled: [false]   # contour has no GAME pitches
   - name: GAME thresholds
     search:
       segment.game.boundary_threshold: [0.1, 0.15, 0.2, 0.3]
@@ -59,8 +68,10 @@ stages:
       notes.from_pitch.key_min_offset: {low: 0.0, high: 0.3}
       notes.game_pitch.quantize_to_key: [true, false]
       notes.game_pitch.key_min_offset: {low: 0.0, high: 0.3}
-      notes.merge.slides: [false, true]
-      notes.merge.slide_max_semitones: {low: 1, high: 3}
+      notes.merge.slides:
+        false: {}
+        true:
+          notes.merge.slide_max_semitones: {low: 1, high: 3}
       notes.merge.same_pitch_syllables: [true, false]
       notes.snap_edges.max_shift: {low: 0.0, high: 0.8}
       notes.snap_edges.conf: {low: 0.02, high: 0.4}

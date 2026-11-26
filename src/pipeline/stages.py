@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import logging
 import os
 from dataclasses import dataclass
 
@@ -36,6 +37,8 @@ class SeparateVocals(Stage):
         model: str            # demucs model
         separator_model: str | None    # audio-separator model file instead of demucs (e.g. new models)
         seed: int                         # demucs' random time shift; other seeds = alternative candidates
+        separator_segment_size: int       # audio-separator (MDXC) segment size
+        separator_overlap: int            # audio-separator (MDXC) overlap
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
@@ -44,7 +47,8 @@ class SeparateVocals(Stage):
         # the separation module caches by file name; a folder per input content (and seed) keeps it honest
         work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}" + (f"_seed{p.seed}" if p.seed else ""))
         folder = separate_vocal_from_audio(work, audio, True, True, ctx.device, DemucsModel(p.model), False,
-                                           p.separator_model, seed=p.seed)
+                                           p.separator_model, None, p.seed, p.separator_segment_size,
+                                           p.separator_overlap)
         return {"vocals": os.path.join(folder, "vocals.wav"),
                 "instrumental": os.path.join(folder, "no_vocals.wav")}
 
@@ -110,9 +114,13 @@ class Key(Stage):
     inputs = {"audio": "audio.processed"}
     outputs = {"key": "key"}
 
+    @dataclass
+    class Params:
+        analysis_seconds: float    # audio from the start used for the key
+
     def run(self, ctx, audio):
         from modules.Audio.key_detector import detect_key_from_audio
-        return {"key": tuple(detect_key_from_audio(audio))}
+        return {"key": tuple(detect_key_from_audio(audio, self.params.analysis_seconds))}
 
 
 # ----------------------------------------------------------------------------- words
@@ -122,7 +130,7 @@ class TranscribeWhisper(Stage):
     """audio -> words (+ detected language). Whisper via whisperX, wav2vec2 word timing."""
     name = "transcribe.whisper"
     hash_modules = False  # expensive: keep the cache across unrelated edits, bump version instead
-    version = "2"  # 2: timings rounded to 1 ms (fresh vs cached runs were not identical)
+    version = "3"  # 2: timings rounded to 1 ms; 3: untimed words left None (words.place_untimed)
     inputs = {"audio": "audio.processed"}
     outputs = {"words": "words", "language": "language"}
 
@@ -145,6 +153,35 @@ class TranscribeWhisper(Stage):
 
 
 @stage
+class PlaceUntimedWords(Stage):
+    """Fallback: words the aligner left without timestamps (numbers, symbols) are placed right after
+    the previous word. Does nothing when every word has timestamps; warns when it acts."""
+    name = "words.place_untimed"
+    inputs = {"words": "words"}
+    outputs = {"words": "words"}
+
+    @dataclass
+    class Params:
+        gap: float      # seconds after the previous word (or from 0 for the first word)
+        length: float   # seconds
+
+    def run(self, ctx, words):
+        out, placed = [], []
+        for w in words:
+            if w.start is None or w.end is None:
+                w = copy.copy(w)
+                prev_end = out[-1].end if out else None
+                w.start = 0.0 if prev_end is None else prev_end + self.params.gap
+                w.end = self.params.length if prev_end is None else prev_end + (self.params.gap + self.params.length)
+                placed.append(w.word.strip())
+            out.append(w)
+        if placed:
+            logging.getLogger("ultrasinger.stages").warning(
+                f"FALLBACK: placed {len(placed)} untimed word(s) after their predecessor: {placed[:5]}")
+        return {"words": out}
+
+
+@stage
 class LyricsLookupLRCLIB(Stage):
     """media + audio duration -> candidate lyrics from lrclib.net."""
     name = "lyrics.lrclib"
@@ -155,12 +192,14 @@ class LyricsLookupLRCLIB(Stage):
     @dataclass
     class Params:
         max_duration_diff: float   # seconds; LRCLIB entries of other versions are skipped
+        max_candidates: int        # lyrics versions kept for the correction step
 
     def run(self, ctx, media, audio):
         import librosa
         from modules.Speech_Recognition import lyrics_lookup as ll
+        p = self.params
         return {"lyrics": ll.fetch_lyrics(media.artist or "", media.title or "", librosa.get_duration(path=audio),
-                                          self.params.max_duration_diff)}
+                                          p.max_duration_diff, p.max_candidates)}
 
 
 @stage
@@ -217,7 +256,8 @@ class AlignText(Stage):
 
     def run(self, ctx, audio, text):
         from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
-        result = align_lyrics_with_whisperx(audio, text, self.params.language, ctx.device, self.params.align_model)
+        p = self.params
+        result = align_lyrics_with_whisperx(audio, text, p.language, ctx.device, p.align_model)
         result.rounded()
         return {"words": result.transcribed_data, "language": self.params.language}
 
@@ -235,11 +275,14 @@ class TranscribeQwen3(Stage):
         model: str
         aligner: str
         language: str | None
+        batch_size: int
+        max_align_seconds: float   # audio per alignment call (the aligner takes at most 180 s)
 
     def run(self, ctx, audio):
         from modules.Speech_Recognition.Qwen3ASR import transcribe_with_qwen3
         p = self.params
-        result = transcribe_with_qwen3(audio, p.model, p.aligner, ctx.device, p.language)
+        result = transcribe_with_qwen3(audio, p.model, p.aligner, ctx.device, p.language, p.batch_size,
+                                       p.max_align_seconds)
         result.rounded()
         return {"words": result.transcribed_data, "language": p.language or result.detected_language}
 
@@ -277,12 +320,30 @@ class SilenceSplit(Stage):
     class Params:
         silence_threshold_db: float   # quieter than this counts as silence
         min_silence_ms: int           # shortest silence that splits a syllable
+        min_piece: float              # pieces up to this long (s) are not kept on their own
 
     def run(self, ctx, syllables, audio):
         from modules.Audio.silence_processing import remove_silence_from_transcription_data
         p = self.params
         return {"syllables": remove_silence_from_transcription_data(audio, syllables, p.min_silence_ms,
-                                                                    p.silence_threshold_db)}
+                                                                    p.silence_threshold_db, p.min_piece)}
+
+
+@stage
+class TrimOverlaps(Stage):
+    """Syllables whose end runs past the next start are cut back to it: onsets are the reliable edge
+    (bench: median onset error 46 ms, ends 115 ms and biased late). Does nothing without overlaps."""
+    name = "syllables.trim_overlaps"
+    inputs = {"syllables": "syllables|words"}
+    outputs = {"syllables": "@syllables"}
+
+    def run(self, ctx, syllables):
+        from modules.Midi.note_ops import trim_overlaps
+        out = trim_overlaps(syllables)
+        cut = sum(1 for a, b in zip(syllables, out) if a.end != b.end)
+        if cut:
+            logging.getLogger("ultrasinger.stages").info(f"trimmed {cut} overlapping syllable end(s)")
+        return {"syllables": out}
 
 
 @stage
@@ -319,7 +380,11 @@ class SyllablesFromChart(Stage):
                 t.word, t.start, t.end = text, round(gap + start * beat, 3), round(gap + (start + dur) * beat, 3)
                 t.is_word_end, t.is_hyphen = text.endswith(" "), False
                 out.append(t)
-        language = self.params.language or (h.get("LANGUAGE") or "en")[:2].lower()
+        language = self.params.language or (h.get("LANGUAGE") or "")[:2].lower()
+        if not language:
+            logging.getLogger("ultrasinger.stages").warning(
+                "FALLBACK: chart has no #LANGUAGE and syllables.from_chart.language is not set; assuming 'en'")
+            language = "en"
         # tempo only sets the writer's beat grid; the chart's own BPM keeps every note on a beat
         return {"syllables": out, "tempo": bpm, "language": language}
 
@@ -333,9 +398,13 @@ class PitchRMVPE(Stage):
     inputs = {"audio": "audio.vocals"}
     outputs = {"pitch": "pitch"}
 
+    @dataclass
+    class Params:
+        decode_threshold: float    # frames with peak salience at or below this are unvoiced
+
     def run(self, ctx, audio):
         from modules.Pitcher.alt_pitchers import get_pitch_with_rmvpe
-        return {"pitch": get_pitch_with_rmvpe(audio, ctx.device)}
+        return {"pitch": get_pitch_with_rmvpe(audio, ctx.device, self.params.decode_threshold)}
 
 
 @stage
@@ -345,9 +414,16 @@ class PitchSwiftF0(Stage):
     inputs = {"audio": "audio.processed"}
     outputs = {"pitch": "pitch"}
 
+    @dataclass
+    class Params:
+        fmin: float
+        fmax: float
+        confidence_threshold: float
+
     def run(self, ctx, audio):
         from modules.Pitcher.pitcher import get_pitch_with_file
-        return {"pitch": get_pitch_with_file(audio)}
+        p = self.params
+        return {"pitch": get_pitch_with_file(audio, p.fmin, p.fmax, p.confidence_threshold)}
 
 
 # ----------------------------------------------------------------------------- segmentation
@@ -356,7 +432,7 @@ class PitchSwiftF0(Stage):
 class SegmentGAME(Stage):
     """syllables -> syllables split at GAME note boundaries (+ GAME's note pitches in aux.game)."""
     name = "segment.game"
-    version = "3"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (was random per run)
+    version = "3"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (overlaps: syllables.trim_overlaps)
     inputs = {"syllables": "syllables|words", "audio": "audio.vocals", "language": "language"}
     outputs = {"syllables": "@syllables", "game": "aux.game"}
 
@@ -393,12 +469,15 @@ class SegmentContour(Stage):
         smooth_frames: int
         conf_threshold: float
         tuning_correction: bool
+        tuning_min_frames: int     # confident frames needed to estimate the tuning offset
+        min_voiced_frames: int     # syllables with fewer voiced frames are not split
 
     def run(self, ctx, syllables, pitch):
         from modules.Midi.segmentation import split_syllables_by_contour
         p = self.params
         return {"syllables": split_syllables_by_contour(syllables, pitch, p.min_duration, p.smooth_frames,
-                                                        p.conf_threshold, p.tuning_correction)}
+                                                        p.conf_threshold, p.tuning_correction, p.tuning_min_frames,
+                                                        p.min_voiced_frames)}
 
 
 @stage
@@ -428,6 +507,9 @@ class NotesFromPitch(Stage):
         conf_threshold: float
         edge_trim: float
         tuning_correction: bool
+        tuning_min_frames: int     # confident frames needed to estimate the tuning offset
+        fmin: float                # frames outside fmin..fmax (Hz) are ignored
+        fmax: float
         quantize_to_key: bool
         key_min_offset: float
 
@@ -436,7 +518,8 @@ class NotesFromPitch(Stage):
         from modules.Midi.midi_creator import NotePitchOptions, create_midi_segments_from_transcribed_data
         p = self.params
         options = NotePitchOptions(method=p.method, conf_threshold=p.conf_threshold, edge_trim=p.edge_trim,
-                                   tuning_correction=p.tuning_correction, key_min_offset=p.key_min_offset)
+                                   tuning_correction=p.tuning_correction, tuning_min_frames=p.tuning_min_frames,
+                                   fmin=p.fmin, fmax=p.fmax, key_min_offset=p.key_min_offset)
         allowed = get_allowed_notes_for_key(*key) if p.quantize_to_key else None
         return {"notes": create_midi_segments_from_transcribed_data(syllables, pitch, allowed, options)}
 
@@ -472,13 +555,16 @@ class MergeNotes(Stage):
     class Params:
         slides: bool
         slide_max_semitones: int   # only with slides: neighbours this close merge into a slide
+        slide_max_sixteenths: float    # only with slides: pieces up to this long count as slides
+        breath_pause_sixteenths: float  # a gap longer than this keeps same-pitch syllables apart
         same_pitch_syllables: bool
 
     def run(self, ctx, notes, syllables, tempo):
         from modules.Midi.note_ops import merge_syllable_segments
         p = self.params
         notes, syllables = merge_syllable_segments(notes, syllables, tempo, p.slides, p.same_pitch_syllables,
-                                                   p.slide_max_semitones)
+                                                   p.slide_max_semitones, p.slide_max_sixteenths,
+                                                   p.breath_pause_sixteenths)
         return {"notes": notes, "syllables": syllables}
 
 
@@ -515,10 +601,12 @@ class Calibrate(Stage):
     class Params:
         offset: float
         end_extension: float
+        min_len: float     # shortest note (s); the next onset still wins
 
     def run(self, ctx, notes):
         from modules.Midi.note_ops import apply_timing_calibration
-        apply_timing_calibration(notes, self.params.offset, self.params.end_extension)
+        p = self.params
+        apply_timing_calibration(notes, p.offset, p.end_extension, p.min_len)
         return {"notes": notes}
 
 
@@ -532,7 +620,7 @@ class LineBreaks(Stage):
     @dataclass
     class Params:
         model: str               # punctuation-restoration model
-        intercept: float         # break score = intercept + w_pause * log(pause + 0.02) + w_punct * logit(p)
+        intercept: float         # break score = intercept + w_pause * log(pause + pause_floor) + w_punct * logit(p)
         w_pause: float
         w_punct: float
         chars_mean: float        # line length prior (characters), from the charts
@@ -542,13 +630,35 @@ class LineBreaks(Stage):
         dur_log_sd: float
         prior_weight: float
         max_words: int
+        pause_floor: float       # s added to pauses before the log
+        prob_floor: float        # punctuation probabilities clipped to [prob_floor, 1 - prob_floor]
+        dur_floor: float         # shortest line duration (s) for the prior
+        punct_chunk: int         # words per punctuation-model call
+        punct_context: int       # words of context on each side of a chunk
 
     def run(self, ctx, notes):
         from modules.Ultrastar.line_breaks import LineBreakModel, plan_line_breaks
         p = self.params
-        model = LineBreakModel(p.intercept, p.w_pause, p.w_punct, p.chars_mean, p.chars_sd, p.chars_max,
-                               p.dur_median, p.dur_log_sd, p.prior_weight, p.max_words)
+        model = LineBreakModel(**{k: v for k, v in vars(p).items() if k != "model"})
         plan_line_breaks(notes, p.model, ctx.device, model)
+        return {"notes": notes}
+
+
+@stage
+class PauseBreaks(Stage):
+    """notes -> notes with line starts from the original pause rule (no model; alternative to
+    notes.line_breaks)."""
+    name = "notes.pause_breaks"
+    inputs = {"notes": "notes"}
+    outputs = {"notes": "notes"}
+
+    @dataclass
+    class Params:
+        min_gaps: int     # with fewer gaps between notes every gap breaks
+
+    def run(self, ctx, notes):
+        from modules.Ultrastar.line_breaks import plan_pause_breaks
+        plan_pause_breaks(notes, self.params.min_gaps)
         return {"notes": notes}
 
 
@@ -568,6 +678,7 @@ class WriteUltraStar(Stage):
     class Params:
         format_version: str
         stems: bool
+        max_bpm: float    # the chart BPM is multiplied up to just below this (finer beat grid)
 
     def run(self, ctx, notes, tempo, media, language, key, vocals=None, instrumental=None):
         from modules.Audio.convert_audio import convert_audio_format
@@ -583,7 +694,7 @@ class WriteUltraStar(Stage):
             convert_audio_format(vocals, os.path.join(ctx.output_dir, f"{ctx.basename} [Vocals].{ext}"))
         txt = create_ultrastar_txt_from_automation(ctx.basename, ctx.output_dir, notes, media,
                                                    FormatVersion(self.params.format_version), True,
-                                                   APP_VERSION)
+                                                   APP_VERSION, self.params.max_bpm)
         return {"txt": txt}
 
 
@@ -595,10 +706,14 @@ class WriteMidi(Stage):
     outputs = {"midi": "file.midi"}
     cache = False
 
+    @dataclass
+    class Params:
+        velocity: int
+
     def run(self, ctx, notes, tempo):
         from modules.Midi.midi_creator import create_midi_file
         os.makedirs(ctx.output_dir, exist_ok=True)
-        create_midi_file(tempo, ctx.output_dir, notes, ctx.basename)
+        create_midi_file(tempo, ctx.output_dir, notes, ctx.basename, self.params.velocity)
         return {"midi": os.path.join(ctx.output_dir, f"{ctx.basename}.mid")}
 
 
@@ -622,9 +737,20 @@ class WriteConventions(Stage):
         line_breaks: bool
         apostrophes: bool
         capitalise: bool
+        break_long_gap_s: float      # line-break position rules (see conventions.fix_line_break_timing)
+        break_long_offset_s: float
+        break_mid_gap_s: float
+        break_mid_offset_s: float
+        break_touch_beats: int
+        break_beat_rules: list       # [[max_gap_beats, beats_before_next_line], ...]
+        break_far_offset_beats: int
 
     def run(self, ctx, txt):
         from modules.Ultrastar.conventions import apply_conventions
         p = self.params
-        apply_conventions(txt, p.touching_notes, p.line_breaks, p.apostrophes, p.capitalise)
+        rules = {"long_gap_s": p.break_long_gap_s, "long_offset_s": p.break_long_offset_s,
+                 "mid_gap_s": p.break_mid_gap_s, "mid_offset_s": p.break_mid_offset_s,
+                 "touch_beats": p.break_touch_beats, "beat_rules": p.break_beat_rules,
+                 "far_offset_beats": p.break_far_offset_beats}
+        apply_conventions(txt, p.touching_notes, p.line_breaks, p.apostrophes, p.capitalise, rules)
         return {"txt": txt}

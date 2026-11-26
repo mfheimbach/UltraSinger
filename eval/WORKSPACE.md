@@ -49,6 +49,5 @@ bigger sets.
 
 ## Tools
 - `splits/`: SingStar split and quick bench (frozen; don't re-roll for nicer scores)
-- `fit_line_breaks.py`: refit the line-break model
 - `check_charts.py`, `error_analysis.py`, `compare.py`, `make_clips.py` (chart cutting helpers)
-- `experiments/`: one-off studies; `experiments/pre_pipeline/`: tools of the old monolith (archived)
+- `experiments/`: one-off studies; `experiments/archived/` and `experiments/pre_pipeline/`: superseded tools

@@ -18,5 +18,6 @@ class TranscriptionResult:
         from the JSON cache (float64) differ by ~1e-7 s; downstream models (GAME chunk cuts) react
         to that, so fresh and cached runs gave different charts. Rounding makes them identical."""
         for t in self.transcribed_data:
-            t.start, t.end = round(float(t.start), decimals), round(float(t.end), decimals)
+            if t.start is not None and t.end is not None:   # untimed words stay None (words.place_untimed)
+                t.start, t.end = round(float(t.start), decimals), round(float(t.end), decimals)
         return self

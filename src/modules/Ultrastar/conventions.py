@@ -67,8 +67,11 @@ def fix_touching_notes(body) -> int:
     return fixed
 
 
-def fix_line_break_timing(body, bpm: float) -> int:
-    """YASS-style position of '- N' between the previous line's end and the next line's start."""
+def fix_line_break_timing(body, bpm: float, rules: dict) -> int:
+    """YASS-style position of '- N' between the previous line's end and the next line's start.
+    rules (from the preset): long_gap_s / long_offset_s and mid_gap_s / mid_offset_s (seconds after the
+    line end for long pauses), touch_beats (gaps up to this break at the line end), beat_rules
+    [[max_gap, beats_before_next], ...] for short gaps, far_offset_beats after the end otherwise."""
     beat_s = 60.0 / (bpm * 4)
     fixed = 0
     for i, tok in enumerate(body):
@@ -81,20 +84,17 @@ def fix_line_break_timing(body, bpm: float) -> int:
         end, start = prev[1] + prev[2], nxt[1]
         gap = start - end
         gap_s = gap * beat_s
-        if gap_s >= 4.0:
-            pos = end + round(2.0 / beat_s)
-        elif gap_s >= 2.0:
-            pos = end + round(1.0 / beat_s)
-        elif gap <= 1:
+        rule = next((before for max_gap, before in rules["beat_rules"] if gap <= max_gap), None)
+        if gap_s >= rules["long_gap_s"]:
+            pos = end + round(rules["long_offset_s"] / beat_s)
+        elif gap_s >= rules["mid_gap_s"]:
+            pos = end + round(rules["mid_offset_s"] / beat_s)
+        elif gap <= rules["touch_beats"]:
             pos = end
-        elif gap <= 8:
-            pos = start - 2
-        elif gap <= 12:
-            pos = start - 3
-        elif gap <= 16:
-            pos = start - 4
+        elif rule is not None:
+            pos = start - rule
         else:
-            pos = end + 10
+            pos = end + rules["far_offset_beats"]
         pos = min(max(pos, end), start)
         if pos != tok[1]:
             tok[1] = pos
@@ -129,8 +129,8 @@ def fix_first_word_capitalisation(body) -> int:
     return fixed
 
 
-def apply_conventions(path: str, touching: bool = True, line_breaks: bool = True,
-                      apostrophes: bool = True, capitalise: bool = True) -> dict:
+def apply_conventions(path: str, touching: bool, line_breaks: bool, apostrophes: bool, capitalise: bool,
+                      break_rules: dict) -> dict:
     """Rewrite the chart at path in place. Returns how many items each rule changed."""
     from modules.Ultrastar.ultrastar_txt import FILE_ENCODING
     with open(path, encoding=FILE_ENCODING) as f:
@@ -139,7 +139,7 @@ def apply_conventions(path: str, touching: bool = True, line_breaks: bool = True
     if touching:
         counts["touching_notes"] = fix_touching_notes(body)
     if line_breaks:
-        counts["line_breaks"] = fix_line_break_timing(body, _bpm(header))
+        counts["line_breaks"] = fix_line_break_timing(body, _bpm(header), break_rules)
     if apostrophes:
         counts["apostrophes"] = fix_apostrophes(body)
     if capitalise:

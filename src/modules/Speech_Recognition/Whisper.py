@@ -95,12 +95,12 @@ def replace_code_lines(source, start_token, end_token,
 def transcribe_with_whisper(
     audio_path: str,
     model: WhisperModel,
-    device="cpu",
-    alignment_model: str = None,
-    batch_size: int = 16,
-    compute_type: str = None,
-    language: str = None,
-    keep_numbers: bool = False,
+    device: str,
+    alignment_model: str | None,
+    batch_size: int,
+    compute_type: str | None,
+    language: str | None,
+    keep_numbers: bool,
 ) -> TranscriptionResult:
     """Transcribe with whisper"""
     # Info: Regardless of the audio sampling rate used in the original audio file, whisper resample the audio signal to 16kHz (via ffmpeg). So the standard input from (44.1 or 48 kHz) should work.
@@ -109,8 +109,7 @@ def transcribe_with_whisper(
     if alignment_model is not None:
         log.info(f"using alignment model {blue_highlighted(alignment_model)}")
 
-    # Fixme: Why it is not none for cpu?
-    #compute_type = "int8"
+    # null in the preset = the device's usual precision (float16 on CUDA, int8 on CPU)
     if compute_type is None:
         compute_type = "float16" if device == "cuda" else "int8"
 
@@ -201,26 +200,20 @@ def transcribe_with_whisper(
 
 
 def convert_to_transcribed_data(result_aligned):
+    """Whisper/wav2vec2 words -> TranscribedData. Words the aligner left without timestamps (numbers,
+    symbols) get start = end = None; the words.place_untimed step places them (and says so)."""
     transcribed_data = []
+    untimed = 0
     for segment in result_aligned["segments"]:
         for obj in segment["words"]:
             vtd = from_whisper(obj)  # create custom Word object
             vtd.word = vtd.word + " "  # add space to end of word
-            if len(obj) < 4:
-                #Addition for numbers to words (Using previous code from louispan in PR#135)
-                if len(transcribed_data) == 0: # if the first word doesn't have any timing data
-                    vtd.start = 0.0
-                    vtd.end = 0.1
-                    msg = f'Error: There is no timestamp for word: "{obj["word"]}". ' \
-                        f'Fixing it by placing it at beginning. At start: {vtd.start} end: {vtd.end}. Fix it manually!'
-                else:
-                    previous = transcribed_data[-1] if len(transcribed_data) != 0 else TranscribedData()
-                    vtd.start = previous.end + 0.1
-                    vtd.end = previous.end + 0.2
-                    msg = f'Error: There is no timestamp for word: "{obj["word"]}". ' \
-                          f'Fixing it by placing it after the previous word: "{previous.word}". At start: {vtd.start} end: {vtd.end}. Fix it manually!'
-                log.warning(msg)
-            transcribed_data.append(vtd)  # and add it to list
+            if "start" not in obj or "end" not in obj:
+                vtd.start = vtd.end = None
+                untimed += 1
+            transcribed_data.append(vtd)
+    if untimed:
+        log.info(f"{untimed} word(s) without timestamps from the aligner")
     return transcribed_data
 
 
@@ -228,8 +221,8 @@ def align_lyrics_with_whisperx(
     audio_path: str,
     lyrics: str,
     language: str,
-    device: str = "cpu",
-    alignment_model: str = None,
+    device: str,
+    alignment_model: str | None,
 ) -> TranscriptionResult:
     """Skip transcription: align known lyrics (plain text) to the audio with wav2vec2."""
     log.info(f"Aligning known lyrics with {blue_highlighted('wav2vec2')} ({language})")

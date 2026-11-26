@@ -11,11 +11,21 @@ CHART = "\n".join([
     ": 545 4 10 la", "E", ""])
 
 
+def _best_rules() -> dict:
+    """The line-break rules as the preset sets them (values live in presets/best.yaml)."""
+    from pipeline.core import resolve_preset
+    from pipeline.run import preset_path
+    p = resolve_preset(preset_path("best"))["params"]["write.conventions"]
+    return {k[len("break_"):]: v for k, v in p.items() if k.startswith("break_")}
+
+
 def _run(text, **kw):
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write(text)
         path = f.name
-    counts = apply_conventions(path, **kw)
+    args = {"touching": True, "line_breaks": True, "apostrophes": True, "capitalise": True,
+            "break_rules": _best_rules(), **kw}
+    counts = apply_conventions(path, **args)
     with open(path, encoding="utf-8") as f:
         return f.read().splitlines(), counts
 

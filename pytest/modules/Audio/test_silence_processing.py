@@ -30,7 +30,7 @@ class SilenceProcessingTest(unittest.TestCase):
         ]
 
         # Act
-        result = remove_silence(silence_parts_list, transcribed_data)
+        result = remove_silence(silence_parts_list, transcribed_data, 0.1)
 
         # Assert
         self.assertEqual(result[0].word, "Before silence ")
@@ -80,7 +80,7 @@ class SilenceProcessingTest(unittest.TestCase):
         ]
 
         # Act
-        result = remove_silence(silence_parts_list, transcribed_data)
+        result = remove_silence(silence_parts_list, transcribed_data, 0.1)
 
         # Assert
         self.assertEqual(result[0].word, "Silence is inside")
@@ -123,7 +123,7 @@ class SilenceProcessingTest(unittest.TestCase):
         ]
 
         # Act
-        result = remove_silence(silence_parts_list, transcribed_data)
+        result = remove_silence(silence_parts_list, transcribed_data, 0.1)
 
         # Assert
         self.assertEqual(result[0].word, "Silence is inside")
@@ -162,7 +162,7 @@ class SilenceProcessingTest(unittest.TestCase):
         ]
 
         # Act
-        result = remove_silence(silence_parts_list, transcribed_data)
+        result = remove_silence(silence_parts_list, transcribed_data, 0.1)
 
         # Assert
         self.assertEqual(result[0].word, "Remove split ")

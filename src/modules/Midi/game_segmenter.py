@@ -23,7 +23,7 @@ log = logging.getLogger("ultrasinger.game_segmenter")
 
 
 class GameModel:
-    def __init__(self, model_dir: str, device: str = "cpu", seed: int = 0):
+    def __init__(self, model_dir: str, device: str, seed: int):
         import onnxruntime as ort
         with open(os.path.join(model_dir, "config.json"), encoding="utf-8") as f:
             self.config = json.load(f)

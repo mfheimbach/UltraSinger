@@ -18,18 +18,14 @@ from modules.Midi.MidiSegment import MidiSegment
 log = logging.getLogger("ultrasinger.ultrastar_writer")
 
 
-def get_multiplier(real_bpm: float) -> int:
-    """Calculates the multiplier for the BPM"""
-
-    if real_bpm == 0:
+def get_multiplier(ultrastar_bpm: float, max_bpm: float) -> int:
+    """Largest integer multiplier keeping the chart BPM below max_bpm (finer beat grid), at least 1."""
+    if ultrastar_bpm == 0:
         raise Exception("BPM is 0")
-
     multiplier = 1
-    result = 0
-    while result < 400:
-        result = real_bpm * multiplier
+    while ultrastar_bpm * (multiplier + 1) < max_bpm:
         multiplier += 1
-    return multiplier - 2
+    return multiplier
 
 
 def get_language_name(language: str) -> str:
@@ -42,17 +38,16 @@ def create_ultrastar_txt(
         midi_segments: list[MidiSegment],
         ultrastar_file_output: str,
         ultrastar_class: UltrastarTxtValue,
-        real_bpm: float) -> None:
-    """Creates an Ultrastar txt file from the automation data"""
+        real_bpm: float,
+        max_bpm: float) -> None:
+    """Creates an Ultrastar txt file from the automation data. Line breaks come from the notes'
+    line_start flags (a line-break step decides them); without flags the chart has one line."""
 
     log.info(f"Creating UltraStar file {ultrastar_file_output}")
 
     ultrastar_bpm = real_bpm_to_ultrastar_bpm(real_bpm)
-    multiplication = get_multiplier(ultrastar_bpm)
-    ultrastar_bpm = ultrastar_bpm * get_multiplier(ultrastar_bpm)
-    silence_split_duration = calculate_silent_beat_length(midi_segments)
-    # planned line breaks (line_start flags) replace the pause rule
-    planned = any(m.line_start for m in midi_segments)
+    multiplication = get_multiplier(ultrastar_bpm, max_bpm)
+    ultrastar_bpm = ultrastar_bpm * multiplication
 
     with open(ultrastar_file_output, "w", encoding=FILE_ENCODING) as file:
         gap = midi_segments[0].start
@@ -98,7 +93,6 @@ def create_ultrastar_txt(
 
         # Write the singing part
         previous_end_beat = 0
-        separated_word_silence = []  # This is a workaround for separated words that get his ends to far away
 
         for i, midi_segment in enumerate(midi_segments):
             # Round start and end from absolute times. Rounding the duration separately and
@@ -111,12 +105,6 @@ def create_ultrastar_txt(
             start_beat = max(start_beat, previous_end_beat)
             duration = max(1, end_beat - start_beat)
             previous_end_beat = start_beat + duration
-
-            # Calculate the silence between the words
-            if i < len(midi_segments) - 1:
-                silence = (midi_segments[i + 1].start - midi_segment.end)
-            else:
-                silence = 0
 
             # : 10 10 10 w
             # ':'   start midi part
@@ -132,18 +120,10 @@ def create_ultrastar_txt(
 
             file.write(line)
 
-            # detect silence between words
+            # breaks only after word ends, where the next note starts a line
             if not midi_segment.word.endswith(" "):
-                separated_word_silence.append(silence)
                 continue
-
-            silence_break = (i != len(midi_segments) - 1 and silence_split_duration != 0 and silence > silence_split_duration
-                             or any(s > silence_split_duration for s in separated_word_silence))
-            if planned:
-                do_break = i + 1 < len(midi_segments) and midi_segments[i + 1].line_start
-            else:
-                do_break = silence_break
-            if do_break:
+            if i + 1 < len(midi_segments) and midi_segments[i + 1].line_start:
                 # - 10
                 # '-' end of current sing part
                 # 'n1' show next at time in real beat
@@ -154,37 +134,7 @@ def create_ultrastar_txt(
                 linebreak = f"{UltrastarTxtTag.LINEBREAK.value} " \
                             f"{str(round(show_next))}\n"
                 file.write(linebreak)
-            separated_word_silence = []
         file.write(f"{UltrastarTxtTag.FILE_END.value}")
-
-
-def deviation(silence_parts):
-    """Calculates the deviation of the silence parts"""
-
-    if len(silence_parts) < 5:
-        return 0
-
-    # Remove the longest part so the deviation is not that high
-    sorted_parts = sorted(silence_parts)
-    filtered_parts = [part for part in sorted_parts if part < sorted_parts[-1]]
-
-    sum_parts = sum(filtered_parts)
-    if sum_parts == 0:
-        return 0
-
-    mean = sum_parts / len(filtered_parts)
-    return mean
-
-
-def calculate_silent_beat_length(midi_segments: list[MidiSegment]):
-    log.info("Calculating silence parts for linebreaks.")
-
-    silent_parts = []
-    for i, data in enumerate(midi_segments):
-        if i < len(midi_segments) - 1:
-            silent_parts.append(midi_segments[i + 1].start - data.end)
-
-    return deviation(silent_parts)
 
 
 def create_repitched_txt_from_ultrastar_data(

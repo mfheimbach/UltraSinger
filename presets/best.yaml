@@ -4,40 +4,49 @@
 name: best
 
 params:
-  separate: {model: htdemucs_ft, separator_model: null, seed: 0}
+  separate: {model: htdemucs_ft, separator_model: null, seed: 0, separator_segment_size: 256, separator_overlap: 2}
   prepare: {denoise: true, denoise_reduction_db: 70, denoise_floor_db: -80,
             mute_silence: true, silence_threshold_db: -50, min_silence_ms: 50}
   tempo: {scale: 1.0}
-  key: {}
+  key: {analysis_seconds: 60.0}
   transcribe.whisper: {model: large-v3-turbo, batch_size: 4, compute_type: null, align_model: null,
                        language: null, keep_numbers: false}
-  transcribe.qwen3: {model: Qwen/Qwen3-ASR-1.7B, aligner: Qwen/Qwen3-ForcedAligner-0.6B, language: null}
+  transcribe.qwen3: {model: Qwen/Qwen3-ASR-1.7B, aligner: Qwen/Qwen3-ForcedAligner-0.6B, language: null,
+                     batch_size: 8, max_align_seconds: 170.0}
   words.align_text: {language: null, align_model: null}
-  lyrics.lrclib: {max_duration_diff: 15.0}
+  words.place_untimed: {gap: 0.1, length: 0.1}
+  lyrics.lrclib: {max_duration_diff: 15.0, max_candidates: 3}
   words.correct_lyrics: {min_match: 0.4, max_length_ratio: 2.0}
   words.strip_punctuation: {}
   syllables.hyphenate: {enabled: true}
-  syllables.silence_split: {silence_threshold_db: -50, min_silence_ms: 50}
+  syllables.silence_split: {silence_threshold_db: -50, min_silence_ms: 50, min_piece: 0.1}
+  syllables.trim_overlaps: {}
   syllables.from_chart: {language: null}
-  pitch.rmvpe: {}
-  pitch.swiftf0: {}
+  pitch.rmvpe: {decode_threshold: 0.03}
+  pitch.swiftf0: {fmin: 46.875, fmax: 2093.75, confidence_threshold: 0.9}
   segment.game: {model_dir: ~/.cache/game/GAME-1.0.3-small-onnx, boundary_threshold: 0.2, steps: 8,
                  chunk_seconds: 30.0, radius: 2, presence_threshold: 0.2, seed: 0}
-  segment.contour: {min_duration: 0.08, smooth_frames: 5, conf_threshold: 0.4, tuning_correction: true}
+  segment.contour: {min_duration: 0.08, smooth_frames: 5, conf_threshold: 0.4, tuning_correction: true,
+                    tuning_min_frames: 10, min_voiced_frames: 3}
   segment.grid: {}
   notes.from_pitch: {method: chroma_mode, conf_threshold: 0.4, edge_trim: 0.0, tuning_correction: true,
-                     quantize_to_key: true, key_min_offset: 0.1}
+                     tuning_min_frames: 10, fmin: 0.0, fmax: 20000.0, quantize_to_key: true, key_min_offset: 0.1}
   notes.game_pitch: {quantize_to_key: true, key_min_offset: 0.1}
-  notes.merge: {slides: false, slide_max_semitones: 2, same_pitch_syllables: true}
+  notes.merge: {slides: false, slide_max_semitones: 2, slide_max_sixteenths: 2.0, breath_pause_sixteenths: 1.0,
+                same_pitch_syllables: true}
   notes.snap_edges: {max_shift: 0.5, conf: 0.1, min_gap: 0.03, min_len: 0.05}
-  notes.calibrate: {offset: -0.07, end_extension: 0.06}
+  notes.calibrate: {offset: -0.07, end_extension: 0.06, min_len: 0.01}
   notes.line_breaks: {model: oliverguhr/fullstop-punctuation-multilingual-base,
                       intercept: 1.355, w_pause: 0.688, w_punct: 0.248,
                       chars_mean: 23.0, chars_sd: 9.0, chars_max: 45, dur_median: 1.9, dur_log_sd: 0.57,
-                      prior_weight: 1.0, max_words: 16}
-  write.ultrastar: {format_version: "1.2.0", stems: true}
-  write.midi: {}
-  write.conventions: {touching_notes: false, line_breaks: true, apostrophes: true, capitalise: true}
+                      prior_weight: 1.0, max_words: 16, pause_floor: 0.02, prob_floor: 0.001, dur_floor: 0.05,
+                      punct_chunk: 150, punct_context: 30}
+  notes.pause_breaks: {min_gaps: 5}
+  write.ultrastar: {format_version: "1.2.0", stems: true, max_bpm: 400.0}
+  write.midi: {velocity: 100}
+  write.conventions: {touching_notes: false, line_breaks: true, apostrophes: true, capitalise: true,
+                      break_long_gap_s: 4.0, break_long_offset_s: 2.0, break_mid_gap_s: 2.0, break_mid_offset_s: 1.0,
+                      break_touch_beats: 1, break_beat_rules: [[8, 2], [12, 3], [16, 4]], break_far_offset_beats: 10}
 
 steps:
   - use: separate
@@ -45,11 +54,13 @@ steps:
   - use: tempo
   - use: key
   - use: transcribe.whisper
+  - use: words.place_untimed
   - use: lyrics.lrclib
   - use: words.correct_lyrics
   - use: words.strip_punctuation
   - use: syllables.hyphenate
   - use: syllables.silence_split
+  - use: syllables.trim_overlaps
   - use: pitch.rmvpe
   - use: segment.game
   - use: notes.from_pitch

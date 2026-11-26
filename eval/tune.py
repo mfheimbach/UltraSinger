@@ -8,15 +8,27 @@ A tuning spec (YAML) names a base preset, the data, the objective and the search
     base: bench                         # preset to start from
     data:
       train: eval_singstar/bench        # song folders (charts + audio)
-      holdout: eval_singstar/selection  # optional: scored once, at the very end
+      holdout: eval_singstar/selection  # mandatory, disjoint: scored once, at the very end
       folds: 4                          # cross-validation folds over train, grouped by artist
       gt_language: true                 # language from the chart (short windows)
     objective: {usdx_medium: 1.0, wer: -0.25}   # weighted sum of per-song means
+    min_gain: 0.001                     # adopt only gains above max(min_gain, noise_sigma x noise SD)
+    noise_sigma: 1.0                    # noise SD per engine: tune/noise.yaml
+    fold_gate: true
+    sampler: auto
+    stop: {patience: 30}
+    coordinate_points: 7
+    cost: {cheap_seconds: 3.0, unknown_seconds: 1.0}
+    # every key is required (validate_spec): no silent defaults
     search:
       notes.calibrate.offset: {low: -0.15, high: 0.0}       # continuous
       notes.snap_edges.max_shift: {low: 0.0, high: 0.8}
       notes.from_pitch.method: [chroma_mode, median]         # discrete choices
       segment.game.use: [segment.game, segment.contour]      # module alternatives for a step
+      notes.merge.slides:                                    # nested: only searched while slides=true
+        false: {}
+        true:
+          notes.merge.slide_max_semitones: {low: 1, high: 3}
       words.strip_punctuation.after: [transcribe.whisper, syllables.hyphenate]   # step order
       separate.model: [htdemucs_ft, htdemucs]                # expensive: evaluated on demand
     trials: 100
@@ -30,6 +42,8 @@ against the ground truth. Optuna's TPE searches all dimensions jointly.
 Honesty: K-fold cross-validation over artists (tune on K-1 folds, score the held fold) gives the
 expected gain on unseen songs; the final configuration is tuned on all train songs and scored once
 on the holdout. Gains come with bootstrap CIs over songs; the report lists which dimensions mattered.
+Staged runs (`stages:`) tune groups early to late, each from the last best; `--from-group N`
+resumes a run in place (report and trials appended).
 Output: tune/out/<name>/ with report.md, trials.csv, and preset.yaml (base + chosen overrides).
 """
 
@@ -56,30 +70,59 @@ import usdx  # noqa: E402
 from run_eval import discover, slug  # noqa: E402
 from run_song import LANGUAGE_STEPS, language_code  # noqa: E402
 
+from pipeline import log as plog  # noqa: E402
 from pipeline import stages  # noqa: E402,F401  (registers the stages)
 from pipeline.core import Context, Pipeline, load_preset  # noqa: E402
 from pipeline.run import media_from_filename, preset_path  # noqa: E402
 
 LOWER_IS_BETTER = {"wer", "cer", "pitch_mae"}
-CHEAP_SECONDS = 3.0    # rerunning from a step to the end faster than this (per 30 s of audio) = cheap
-UNKNOWN_SECONDS = 1.0  # cost assumed for stages without runtime records
+BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
+
+# Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
+REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective",
+            "min_gain", "noise_sigma", "fold_gate", "sampler", "trials", "stop", "coordinate_points",
+            "cost.cheap_seconds", "cost.unknown_seconds"]
+
+
+def validate_spec(spec: dict) -> None:
+    """Fail loudly on missing settings. A holdout is mandatory: the final config is scored on songs
+    the search never saw."""
+    missing = []
+    for key in REQUIRED:
+        node = spec
+        for part in key.split("."):
+            if not isinstance(node, dict) or part not in node:
+                missing.append(key)
+                break
+            node = node[part]
+    if not (spec.get("stages") or spec.get("search")):
+        missing.append("stages (or search)")
+    if missing:
+        raise SystemExit(f"tuning spec is missing: {', '.join(missing)} (see tune/staged_singstar.yaml)")
+    if not spec["data"]["holdout"]:
+        raise SystemExit("tuning spec: data.holdout is empty; tuning without a holdout is not allowed")
 
 
 # ----------------------------------------------------------------------------- search space
 
-class Dim:
-    """One search dimension -> override string for a value."""
+RANGE_KEYS = {"low", "high", "log", "float"}
 
-    def __init__(self, key: str, spec):
-        self.key = key
+
+class Dim:
+    """One search dimension -> override string for a value. `parent` = (key, value): the dimension
+    only exists while that parent choice has that value (nested in the spec, see parse_search)."""
+
+    def __init__(self, key: str, spec, parent: tuple[str, object] | None = None):
+        self.key, self.parent = key, parent
         self.step, self.attr = key.rsplit(".", 1)
-        if isinstance(spec, dict):
+        if isinstance(spec, dict) and set(spec) <= RANGE_KEYS and "low" in spec:
             self.kind = "int" if isinstance(spec.get("low"), int) and isinstance(spec.get("high"), int) \
                 and not spec.get("float") else "float"
             self.low, self.high, self.log = spec["low"], spec["high"], bool(spec.get("log"))
             self.choices = None
         else:
-            self.kind, self.choices = "choice", list(spec)
+            self.kind = "choice"
+            self.choices = list(spec) if not isinstance(spec, dict) else list(spec.keys())
 
     def suggest(self, trial):
         if self.kind == "choice":
@@ -92,6 +135,89 @@ class Dim:
         return f"{self.step}.{self.attr}={json.dumps(value) if not isinstance(value, str) else value}"
 
 
+def parse_search(search: dict, parent: tuple[str, object] | None = None) -> list[Dim]:
+    """Search spec -> dimensions, parents before children. A choice given as a mapping nests the
+    dimensions that only matter for one of its values (indent them under that value):
+
+        notes.merge.slides:
+          false: {}
+          true:
+            notes.merge.slide_max_semitones: {low: 1, high: 3}
+        segment.game.use:
+          segment.game: {}
+          segment.contour:
+            notes.game_pitch.enabled: [false]    # contour has no GAME pitches
+    """
+    dims = []
+    for key, spec in search.items():
+        d = Dim(key, spec, parent)
+        dims.append(d)
+        if d.kind == "choice" and isinstance(spec, dict):
+            for value, sub in spec.items():
+                dims += parse_search(sub or {}, (key, value))
+    return dims
+
+
+def active(dims: list[Dim], cfg: dict) -> list[Dim]:
+    """The dimensions that exist under this configuration (parents decide)."""
+    on = set()
+    for d in dims:
+        if d.parent is None or (d.parent[0] in on and cfg.get(d.parent[0]) == d.parent[1]):
+            on.add(d.key)
+    return [d for d in dims if d.key in on]
+
+
+def normalize(dims: list[Dim], cfg: dict, default: dict) -> dict:
+    """Keep the values of active dimensions, fill newly active ones from `default`, drop the rest."""
+    out = {}
+    for d in dims:
+        if d.parent is None or (d.parent[0] in out and out[d.parent[0]] == d.parent[1]):
+            out[d.key] = cfg[d.key] if d.key in cfg else default[d.key]
+    return out
+
+
+def valid_configs(dims: list[Dim]) -> list[dict] | None:
+    """Every configuration of an all-discrete (possibly nested) space; None if any range."""
+    if any(d.kind != "choice" for d in dims):
+        return None
+    configs = [{}]
+    for d in dims:
+        nxt = []
+        for c in configs:
+            if d.parent is None or (d.parent[0] in c and c[d.parent[0]] == d.parent[1]):
+                nxt += [{**c, d.key: v} for v in d.choices]
+            else:
+                nxt.append(c)
+        configs = nxt
+    return configs
+
+
+def base_config(ev: "Evaluator", song: str, dims: list[Dim]) -> dict:
+    """Current values of the dimensions in the base preset (missing / out-of-range ones left out)."""
+    p0 = ev.pipeline([], song)
+    ids = [st.id for st in p0.stages]
+    vals = {f"{st.id}.{k}": v for st in p0.stages for k, v in vars(st.params).items()}
+    base = {}
+    for d in dims:
+        if d.attr == "use":
+            v = p0.stages[ids.index(d.step)].name if d.step in ids else None
+        elif d.attr == "enabled":
+            v = d.step in ids
+        elif d.attr in ("after", "before"):
+            i = ids.index(d.step)
+            v = ids[i - 1] if d.attr == "after" and i > 0 else (ids[i + 1] if i + 1 < len(ids) else None)
+        else:
+            v = vals.get(d.key)
+        if v is None:
+            continue
+        if d.kind == "choice" and v not in d.choices:
+            continue
+        if d.kind != "choice" and not (d.low <= v <= d.high):
+            continue
+        base[d.key] = v
+    return base
+
+
 def step_cost(stage_name: str) -> float | None:
     """Seconds per 30 s of audio from the runtime records (None: unknown)."""
     from pipeline import runtimes
@@ -101,21 +227,22 @@ def step_cost(stage_name: str) -> float | None:
     return float(np.median([r["seconds"] / r["audio_seconds"] * 30.0 for r in recs[-50:]]))
 
 
-def split_dims(base_pipeline: Pipeline, dims: list[Dim]) -> tuple[list[Dim], list[Dim], int]:
-    """Cheap dims: rerunning from their step to the end costs at most CHEAP_SECONDS per 30 s of
-    audio (runtime records; unknown stages count UNKNOWN_SECONDS). Everything else is expensive:
+def split_dims(base_pipeline: Pipeline, dims: list[Dim], cheap_seconds: float,
+               unknown_seconds: float) -> tuple[list[Dim], list[Dim], int]:
+    """Cheap dims: rerunning from their step to the end costs at most cheap_seconds per 30 s of
+    audio (runtime records; unknown stages count unknown_seconds). Everything else is expensive:
     discrete values only, each computed once (disk cache). Returns the tail start: the earliest step
     a cheap dim can touch, never after the first writer (charts are written per trial)."""
     ids = [st.id for st in base_pipeline.stages]
     names = [st.name for st in base_pipeline.stages]
     cost = [step_cost(n) for n in names]
-    cost = [UNKNOWN_SECONDS if c is None else c for c in cost]
+    cost = [unknown_seconds if c is None else c for c in cost]
 
     def tail_cost(i: int, alt_stage: str | None = None) -> float:
         extra = 0.0
         if alt_stage:
             c = step_cost(alt_stage)
-            extra = (UNKNOWN_SECONDS if c is None else c) - cost[i]
+            extra = (unknown_seconds if c is None else c) - cost[i]
         return sum(cost[i:]) + max(extra, 0.0)
 
     expensive, cheap = [], []
@@ -126,7 +253,7 @@ def split_dims(base_pipeline: Pipeline, dims: list[Dim]) -> tuple[list[Dim], lis
         if d.attr in ("after", "before"):
             i = min([i] + [ids.index(c) + (1 if d.attr == "after" else 0) for c in d.choices if c in ids])
         c = max(tail_cost(i, alt) for alt in d.choices) if d.attr == "use" else tail_cost(i)
-        if c <= CHEAP_SECONDS:
+        if c <= cheap_seconds:
             cheap.append((d, i))
         else:
             if d.kind != "choice":
@@ -160,7 +287,7 @@ class Evaluator:
         return [f"{s}.language={code}" for s in LANGUAGE_STEPS if s in step_ids]
 
     def pipeline(self, overrides: list[str], name: str) -> Pipeline:
-        ov = expand(self.base_overrides + list(overrides))
+        ov = self.base_overrides + list(overrides)
         p = load_preset(preset_path(self.base), ov)
         return load_preset(preset_path(self.base), self.lang_overrides(name, {st.id for st in p.stages}) + ov)
 
@@ -211,10 +338,8 @@ def _sub(p: Pipeline, a: int, b: int) -> Pipeline:
 
 # ----------------------------------------------------------------------------- tuning
 
-def coordinate_sampler_trials(dims: list[Dim], base: dict, points: int = 7):
-    """Coordinate descent as a generator of parameter dicts: one dimension at a time over its values
-    (continuous: `points` evenly spaced), keeping the best so far; cycles until a full pass brings
-    nothing. Driven by tune() through optuna's enqueue mechanism."""
+def coordinate_sampler_trials(dims: list[Dim], points: int):
+    """Value grid per dimension for coordinate descent (continuous: `points` evenly spaced)."""
     def values(d):
         if d.kind == "choice":
             return list(d.choices)
@@ -224,62 +349,66 @@ def coordinate_sampler_trials(dims: list[Dim], base: dict, points: int = 7):
     return {d.key: values(d) for d in dims}
 
 
+def _evaluate(ev, songs, dims, expensive, cheap, tail_start, cfg) -> float:
+    """Objective of one configuration (only its active dimensions become overrides)."""
+    keys = {d.key for d in active(dims, cfg)}
+    exp_ov = tuple(d.override(cfg[d.key]) for d in expensive if d.key in keys)
+    cheap_ov = [d.override(cfg[d.key]) for d in cheap if d.key in keys]
+    return ev.objective([ev.score(s, exp_ov, cheap_ov, tail_start) for s in songs])
+
+
+def to_overrides(dims: list[Dim], cfg: dict) -> list[str]:
+    return [d.override(cfg[d.key]) for d in active(dims, cfg)]
+
+
 def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim], tail_start: int,
          trials: int, seed: int, log=print, sampler_name: str = "auto", stop: dict | None = None):
     """Search the dimensions on these songs. sampler_name: auto (grid when everything is discrete and
     fits the budget, else TPE) | grid | tpe | random | cmaes | coordinate. The search ends at whichever
     comes first: `trials` evaluations; no improvement > stop["tol"] for stop["patience"] trials;
-    stop["max_seconds"] wall time."""
+    stop["max_seconds"] wall time. Nested dimensions are only sampled while their parent value holds.
+    Returns (study or None, overrides of the best configuration, rows)."""
     import optuna
+    import warnings
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    # multivariate/group TPE are flagged experimental; we use them on purpose (conditional spaces)
+    warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
+    dims = order_dims(expensive + cheap)
     if sampler_name == "coordinate":
-        return _coordinate(ev, songs, expensive, cheap, tail_start, trials, stop)
+        return _coordinate(ev, songs, dims, expensive, cheap, tail_start, trials, stop)
     rows = []
+    grid = valid_configs(dims)
+    use_grid = sampler_name in ("auto", "grid") and grid is not None and len(grid) <= trials
 
     def objective(trial):
-        exp_ov = tuple(d.override(d.suggest(trial)) for d in expensive)
-        cheap_ov = [d.override(d.suggest(trial)) for d in cheap]
-        per_song = [ev.score(s, exp_ov, cheap_ov, tail_start) for s in songs]
-        val = ev.objective(per_song)
-        rows.append({"trial": trial.number, "objective": val, **trial.params})
+        if use_grid:
+            cfg = grid[trial.suggest_categorical("_config", list(range(len(grid))))]
+        else:
+            cfg = {}
+            for d in dims:
+                if d.parent is None or (d.parent[0] in cfg and cfg[d.parent[0]] == d.parent[1]):
+                    cfg[d.key] = d.suggest(trial)
+        trial.set_user_attr("cfg", cfg)
+        val = _evaluate(ev, songs, dims, expensive, cheap, tail_start, cfg)
+        rows.append({"trial": trial.number, "objective": val, **cfg})
         return val
 
-    dims = expensive + cheap
-    combos = int(np.prod([len(d.choices) for d in dims])) if all(d.kind == "choice" for d in dims) else None
-    if (sampler_name in ("auto", "grid")) and combos is not None and combos <= trials:
-        sampler = optuna.samplers.GridSampler({d.key: d.choices for d in dims}, seed=seed)
-        trials = combos
+    if use_grid:
+        sampler = optuna.samplers.GridSampler({"_config": list(range(len(grid)))}, seed=seed)
+        trials = len(grid)
     elif sampler_name == "random":
         sampler = optuna.samplers.RandomSampler(seed=seed)
     elif sampler_name == "cmaes":
         sampler = optuna.samplers.CmaEsSampler(seed=seed, warn_independent_sampling=False,
                                                independent_sampler=optuna.samplers.TPESampler(seed=seed))
     else:
-        combos = None
-        sampler = optuna.samplers.TPESampler(seed=seed, multivariate=True)
+        sampler = optuna.samplers.TPESampler(seed=seed, multivariate=True, group=True,
+                                             warn_independent_sampling=False)
     study = optuna.create_study(direction="maximize", sampler=sampler)
     # trial 0 = the base preset (so "tuned" can never be worse than base on the tuning songs)
-    base = {}
-    p0 = ev.pipeline([], songs[0])
-    vals = {f"{st.id}.{k}": v for st in p0.stages for k, v in vars(st.params).items()}
-    ids = [st.id for st in p0.stages]
-    for d in expensive + cheap:
-        if d.attr == "use":
-            base[d.key] = p0.stages[ids.index(d.step)].name
-        elif d.attr in ("after", "before"):
-            i = ids.index(d.step)
-            anchor = ids[i - 1] if d.attr == "after" and i > 0 else (ids[i + 1] if i + 1 < len(ids) else None)
-            if anchor in (d.choices or []):
-                base[d.key] = anchor
-        elif d.key in vals:
-            v = vals[d.key]
-            if d.kind == "choice" and v not in d.choices:
-                continue
-            if d.kind != "choice" and not (d.low <= v <= d.high):
-                continue
-            base[d.key] = v
-    if len(base) == len(expensive) + len(cheap) and combos is None:
-        study.enqueue_trial(base)
+    base = base_config(ev, songs[0], dims)
+    if not use_grid and {d.key for d in active(dims, base)} <= set(base):
+        study.enqueue_trial({k: v for k, v in base.items() if k in {d.key for d in active(dims, base)}})
     t0 = time.time()
     callbacks = [lambda s, t: log(f"  trial {t.number:3d}  {t.value:.4f}  best {s.best_value:.4f}"
                                   f"  ({time.time() - t0:.0f}s)") if t.number % 10 == 0 else None]
@@ -289,39 +418,48 @@ def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim]
         def early_stop(st, t):
             hist.append(st.best_value)
             k = stop.get("patience")
-            if k and len(hist) > k and hist[-1] - hist[-1 - k] <= float(stop.get("tol", 0.0)):
+            if k and len(hist) > k and hist[-1] - hist[-1 - k] <= float(stop["tol"]):
                 st.stop()
             if stop.get("max_seconds") and time.time() - t0 > float(stop["max_seconds"]):
                 st.stop()
         callbacks.append(early_stop)
     study.optimize(objective, n_trials=trials, callbacks=callbacks)
-    best_ov_exp = tuple(d.override(study.best_params[d.key]) for d in expensive)
-    best_ov_cheap = [d.override(study.best_params[d.key]) for d in cheap]
-    return study, list(best_ov_exp) + best_ov_cheap, rows
+    return study, to_overrides(dims, study.best_trial.user_attrs["cfg"]), rows
 
 
-def _coordinate(ev, songs, expensive, cheap, tail_start, budget, stop=None):
-    """Coordinate descent (see coordinate_sampler_trials); returns (None, best overrides, rows).
-    A move counts only if it improves by more than stop["tol"]; stops at budget or stop["max_seconds"]."""
+def order_dims(dims: list[Dim]) -> list[Dim]:
+    """Parents before their children (split_dims may reorder)."""
+    out, keys = [], set()
+    pending = list(dims)
+    while pending:
+        nxt = [d for d in pending if d.parent is None or d.parent[0] in keys]
+        if not nxt:
+            raise ValueError(f"nested dimensions without their parent: {[d.key for d in pending]}")
+        for d in nxt:
+            out.append(d)
+            keys.add(d.key)
+            pending.remove(d)
+    return out
+
+
+def _coordinate(ev, songs, dims, expensive, cheap, tail_start, budget, stop=None):
+    """Coordinate descent: one dimension at a time over its values (continuous: 7 points), keeping a
+    move only if it improves by more than stop["tol"]; repeats passes until nothing improves, the budget
+    or stop["max_seconds"] is used up. Nested dimensions take part while their parent value holds.
+    Returns (None, best overrides, rows)."""
     stop = stop or {}
     tol = float(stop.get("tol", 0.0))
     t0 = time.time()
-    dims = expensive + cheap
-    grid = coordinate_sampler_trials(dims, {})
-    p0 = ev.pipeline([], songs[0])
-    cur = {}
-    for d in dims:
-        st = next(x for x in p0.stages if x.id == d.step)
-        v = st.name if d.attr == "use" else getattr(st.params, d.attr, None)
-        cur[d.key] = v if v in grid[d.key] else grid[d.key][0]
+    grid = coordinate_sampler_trials(dims, int(ev.spec["coordinate_points"]))
+    base = base_config(ev, songs[0], dims)
+    default = {d.key: base.get(d.key, grid[d.key][0]) for d in dims}
+    cur = normalize(dims, {}, default)
     seen, rows = {}, []
 
     def evaluate(cfg):
         key = tuple(sorted(cfg.items(), key=lambda kv: kv[0]))
         if key not in seen:
-            exp_ov = tuple(d.override(cfg[d.key]) for d in expensive)
-            cheap_ov = [d.override(cfg[d.key]) for d in cheap]
-            seen[key] = ev.objective([ev.score(x, exp_ov, cheap_ov, tail_start) for x in songs])
+            seen[key] = _evaluate(ev, songs, dims, expensive, cheap, tail_start, cfg)
             rows.append({"trial": len(rows), "objective": seen[key], **cfg})
         return seen[key]
 
@@ -329,16 +467,15 @@ def _coordinate(ev, songs, expensive, cheap, tail_start, budget, stop=None):
     improved = True
     while improved and len(rows) < budget:
         improved = False
-        for d in dims:
+        for d in active(dims, cur):
             for v in grid[d.key]:
                 if len(rows) >= budget or (stop.get("max_seconds") and time.time() - t0 > stop["max_seconds"]):
                     break
-                cand = {**cur, d.key: v}
+                cand = normalize(dims, {**cur, d.key: v}, default)
                 val = evaluate(cand)
                 if val > best + max(tol, 1e-12):
                     best, cur, improved = val, cand, True
-    overrides = [d.override(cur[d.key]) for d in dims]
-    return None, overrides, rows
+    return None, to_overrides(dims, cur), rows
 
 
 NOISE_FILE = os.path.join(ROOT, "tune", "noise.yaml")
@@ -360,25 +497,35 @@ def load_noise(song_set: str) -> dict:
         return (yaml.safe_load(f) or {}).get(song_set) or {}
 
 
-def group_noise(pipeline, dims: list[Dim], table: dict) -> tuple[float, str]:
+def group_noise(pipeline, dims: list[Dim], table: dict, objective: dict) -> tuple[float, str]:
     """Noise SD for a group: a change re-rolls the first chaotic module at or after the group's earliest
-    step, so use that module's saved noise. Exact engine first; same module with another engine is
-    borrowed (flagged); no chaotic module downstream -> 0. Returns (sd, source)."""
+    step, so use that module's saved noise. Exact engine first; the same module with another engine, or
+    a value measured for another objective, is a fallback (logged as one); no chaotic module downstream
+    -> 0. Returns (sd, source)."""
+    import logging
+    warn = logging.getLogger("ultrasinger.tune").warning
     ids = [st.id for st in pipeline.stages]
     first = min((ids.index(d.step) for d in dims if d.step in ids), default=0)
     for st in pipeline.stages[first:]:
         key = engine_key(st)
-        if key in table:
-            return float(table[key]["sd"]), key
         same = [k for k in table if k.split("[")[0] == st.name]
-        if same:
-            return float(table[same[0]]["sd"]), f"{same[0]} (borrowed for {key}: measure it)"
+        if key in table or same:
+            use = key if key in table else same[0]
+            src = use
+            if use != key:
+                warn(f"FALLBACK: no noise measured for {key}; borrowing {use} (measure it)")
+                src = f"{use}, borrowed for {key}"
+            if table[use].get("objective") not in (None, objective):
+                warn(f"FALLBACK: noise of {use} was measured for objective {table[use]['objective']}, not "
+                     f"{objective} (measure it)")
+                src += ", other objective"
+            return float(table[use]["sd"]), src
     return 0.0, "deterministic downstream"
 
 
 def min_gain(spec: dict, noise_sd: float) -> float:
     """Smallest gain that counts: the larger of the absolute floor and noise_sigma x the step's noise SD."""
-    return max(float(spec.get("min_gain", 0.001)), float(spec.get("noise_sigma", 1.0)) * noise_sd)
+    return max(float(spec["min_gain"]), float(spec["noise_sigma"]) * noise_sd)
 
 
 def per_song_objective(ev, songs, overrides, expensive, cheap, tail_start) -> np.ndarray:
@@ -398,26 +545,25 @@ def artist_groups(songs: list[str]) -> dict[str, str]:
     return {s: groups.get(s.split(" @")[0], s.split(" - ")[0]) for s in songs}
 
 
-def boot_ci(x: np.ndarray, n: int = 2000) -> tuple[float, float]:
+def boot_ci(x: np.ndarray, n: int = BOOT_SAMPLES) -> tuple[float, float]:
     rng = np.random.default_rng(0)
     m = [x[rng.integers(0, len(x), len(x))].mean() for _ in range(n)]
     return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
 
 
 def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds: int, seed: int,
-              report: list[str], title: str, sampler: str = "auto", stop: dict | None = None,
-              spec: dict | None = None) -> dict:
+              report: list[str], title: str, sampler: str, stop: dict, spec: dict) -> dict:
     """Tune one group of dimensions (CV estimate + final in-sample config). Returns the result.
     With spec: the group's smallest relevant gain (min_gain) sets the search tolerance (unless the
     group's stop gives its own tol) and is returned for the adoption rule."""
-    dims = [Dim(k, v) for k, v in search.items()]
+    dims = parse_search(search)
     base_p = ev.pipeline([], names[0])
-    expensive, cheap, tail_start = split_dims(base_p, dims)
-    spec = spec or {}
-    table = spec.get("noise") or load_noise(spec["data"]["train"])
-    noise_sd, noise_src = group_noise(base_p, dims, table)
+    expensive, cheap, tail_start = split_dims(base_p, dims, float(spec["cost"]["cheap_seconds"]),
+                                              float(spec["cost"]["unknown_seconds"]))
+    table = load_noise(spec["data"]["train"])
+    noise_sd, noise_src = group_noise(base_p, dims, table, spec["objective"])
     threshold = min_gain(spec, noise_sd)
-    stop = {"tol": threshold, **(stop or {})}
+    stop = {"tol": threshold, **stop}
     steps = [st.id for st in base_p.stages]
     print(f"\n=== {title}\n  expensive (computed per value): {[d.key for d in expensive]}\n"
           f"  cheap (tail from {steps[tail_start] if tail_start < len(steps) else '-'}): {[d.key for d in cheap]}")
@@ -440,11 +586,11 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
                             sampler_name=sampler, stop=stop)
             # same decision rule inside the fold: leave the base only if the training gain beats the
             # noise (scaled from the song set to this fold's size), else a noise-picked winner is scored
-            if spec.get("fold_gate", True):
+            if spec["fold_gate"]:
                 gain_tr = (per_song_objective(ev, tr, ov, expensive, cheap, tail_start)
                            - per_song_objective(ev, tr, [], expensive, cheap, tail_start)).mean()
-                if gain_tr <= max(float(spec.get("min_gain", 0.001)),
-                                  float(spec.get("noise_sigma", 1.0)) * noise_sd * np.sqrt(len(names) / len(tr))):
+                if gain_tr <= max(float(spec["min_gain"]),
+                                  float(spec["noise_sigma"]) * noise_sd * np.sqrt(len(names) / len(tr))):
                     ov = []
             cv_base.append(per_song_objective(ev, te, [], expensive, cheap, tail_start))
             cv_tuned.append(per_song_objective(ev, te, ov, expensive, cheap, tail_start))
@@ -473,23 +619,16 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
             report += ["", "importance: " + ", ".join(f"{k.split('.', 1)[1]} {v:.2f}" for k, v in imp.items())]
         except Exception:
             pass
+    reps = plog.repeats_summary()
+    if reps:
+        report += ["", "repeated warnings (shown once, then counted):"] + [f"- {r}" for r in reps]
+        print("  " + "\n  ".join(reps))
     report.append("")
     return res
 
 
-def expand(overrides: list[str]) -> list[str]:
-    """A choice can carry coupled changes after ';', e.g. segment.game.use: ["segment.contour;
-    -notes.game_pitch"] (contour has no GAME output for game_pitch) -> separate overrides."""
-    out = []
-    for o in overrides:
-        head, *extra = [x.strip() for x in o.split(";")]
-        out += [head] + [x for x in extra if x]
-    return out
-
-
 def write_outputs(out_dir, spec, overrides, rows, report):
     import yaml
-    overrides = expand(overrides)
     with open(os.path.join(out_dir, "preset.yaml"), "w", encoding="utf-8") as f:
         yaml.safe_dump({"name": f"tuned_{spec['name']}", "base": spec["base"], "overrides": overrides}, f,
                        sort_keys=False, allow_unicode=True)
@@ -502,48 +641,79 @@ def write_outputs(out_dir, spec, overrides, rows, report):
         f.write("\n".join(report) + "\n")
 
 
+def read_previous(out_dir: str, groups: list[dict], from_group: int) -> tuple[list[str], list[dict], list[str]]:
+    """For a resumed run: the earlier report (without its result sections), the trial rows of the
+    groups before from_group, and the overrides reached so far (preset.yaml)."""
+    import yaml
+    with open(os.path.join(out_dir, "report.md"), encoding="utf-8") as f:
+        lines = f.read().rstrip("\n").split("\n")
+    cut = next((i for i, line in enumerate(lines) if line.startswith(("## Result", "## Holdout"))), len(lines))
+    # drop sections of groups that are rerun
+    rerun = {f"## {i + 1}. {g['name']}" for i, g in enumerate(groups) if i + 1 >= from_group}
+    keep, skipping = [], False
+    for line in lines[:cut]:
+        if line.startswith("## "):
+            skipping = line in rerun
+        if not skipping:
+            keep.append(line)
+    done = {g["name"] for i, g in enumerate(groups) if i + 1 < from_group}
+    with open(os.path.join(out_dir, "trials.csv"), newline="", encoding="utf-8") as f:
+        rows = [{k: v for k, v in r.items() if v != ""} for r in csv.DictReader(f) if r.get("group") in done]
+    with open(os.path.join(out_dir, "preset.yaml"), encoding="utf-8") as f:
+        overrides = list(yaml.safe_load(f).get("overrides") or [])
+    return keep, rows, overrides
+
+
 def main():
     import yaml
     ap = argparse.ArgumentParser()
     ap.add_argument("spec")
     ap.add_argument("--work", default="eval_work_ng")
-    ap.add_argument("--trials", type=int)
-    ap.add_argument("--folds", type=int)
+    ap.add_argument("--trials", type=int, help="override every group's trial budget (smoke tests)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--race", help="compare search methods on one group, e.g. tpe,cmaes,random,coordinate")
     ap.add_argument("--group", help="with --race: the group (name from stages) to race on")
-    ap.add_argument("--start", help="overrides to start from (a preset.yaml written by a tuning run)")
-    ap.add_argument("--from-group", type=int, default=1, help="resume at this group number (use with --start)")
+    ap.add_argument("--start", help="with --race: overrides to start from (a preset.yaml written by a tuning run)")
+    ap.add_argument("--from-group", type=int, default=1,
+                    help="resume: continue the run in tune/out/<name>/ at this group number (report and trials "
+                         "are appended to, overrides taken from its preset.yaml)")
     args = ap.parse_args()
+    plog.setup(verbose=False)   # our warnings + each distinct library warning once; repeats counted
     with open(args.spec, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
+    validate_spec(spec)
     data = spec["data"]
-    folds = args.folds if args.folds is not None else data.get("folds", 4)
+    folds = int(data["folds"])
     out_dir = os.path.join(ROOT, "tune", "out", spec["name"])
     os.makedirs(out_dir, exist_ok=True)
     train = discover(data["train"], None)
-    holdout = discover(data["holdout"], None) if data.get("holdout") else []
+    holdout = discover(data["holdout"], None)
+    overlap = {n for n, _ in train} & {n for n, _ in holdout}
+    if overlap:
+        raise SystemExit(f"holdout overlaps train: {sorted(overlap)[:5]}")
     ev = Evaluator(spec, args.work, train + holdout)
     names = [n for n, _ in train]
-    report = [f"# Tuning report: {spec['name']}", "", f"base preset `{spec['base']}` + {ev.base_overrides}, "
-              f"objective `{spec['objective']}`, {len(names)} songs, {folds} CV folds", ""]
-    groups = spec.get("stages") or [{"name": "all", "search": spec["search"], "trials": spec.get("trials")}]
+    groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
     if args.race:
         return race(ev, names, groups, args, spec, folds, out_dir)
-    all_rows, start = [], list(ev.base_overrides)
-    if args.start:
-        with open(args.start, encoding="utf-8") as f:
-            ev.base_overrides = list(yaml.safe_load(f).get("overrides") or [])
-        report += [f"resumed at group {args.from_group} from {args.start}: {ev.base_overrides}", ""]
+    start = list(ev.base_overrides)
+    if args.from_group > 1:
+        report, all_rows, ev.base_overrides = read_previous(out_dir, groups, args.from_group)
+        report += [f"(resumed at group {args.from_group})", ""]
+    else:
+        report = [f"# Tuning report: {spec['name']}", "", f"base preset `{spec['base']}` + {ev.base_overrides}, "
+                  f"objective `{spec['objective']}`, {len(names)} songs, {folds} CV folds, holdout "
+                  f"{len(holdout)} songs", ""]
+        all_rows = []
     # keep a group only if its cross-validated gain is above the smallest gain that counts:
     # max(min_gain, noise_sigma x noise SD of the step), see group_noise / min_gain
     for gi, group in enumerate(groups):
         if gi + 1 < args.from_group:
             continue
-        trials = args.trials or group.get("trials") or spec.get("trials", 50)
+        trials = args.trials or group.get("trials") or spec["trials"]
         res = run_group(ev, names, group["search"], trials, folds, args.seed + 100 * gi, report,
-                        f"{gi + 1}. {group['name']}", group.get("sampler", spec.get("sampler", "auto")),
-                        group.get("stop", spec.get("stop")), spec)
+                        f"{gi + 1}. {group['name']}", group.get("sampler", spec["sampler"]),
+                        group.get("stop", spec["stop"]), spec)
         all_rows += [{"group": group["name"], **r} for r in res["rows"]]
         gain = res["cv_gain"] if res["cv_gain"] is not None else res["tuned"] - res["base"]
         if gain > res["min_gain"]:
@@ -558,16 +728,14 @@ def main():
     final = ev.base_overrides
     report += ["## Result", "", f"overrides on top of `{spec['base']}`:", "", "```"] + \
               [o for o in final if o not in start] + ["```", ""]
-    if holdout:
-        hn = [n for n, _ in holdout]
-        ev_start = list(ev.base_overrides)
-        ev.base_overrides = start
-        hb = np.array([ev.objective([ev.score(x, (), [], _write_index(ev, x))]) for x in hn])
-        ev.base_overrides = ev_start
-        ht = np.array([ev.objective([ev.score(x, (), [], _write_index(ev, x))]) for x in hn])
-        lo, hi = boot_ci(ht - hb)
-        report += ["## Holdout (scored once)", "", f"{len(hn)} songs: start {hb.mean():.4f}, tuned {ht.mean():.4f}, "
-                   f"gain {np.mean(ht - hb):+.4f} (95% CI {lo:+.4f} .. {hi:+.4f})", ""]
+    hn = [n for n, _ in holdout]
+    ev.base_overrides = start
+    hb = np.array([ev.objective([ev.score(x, (), [], _write_index(ev, x))]) for x in hn])
+    ev.base_overrides = final
+    ht = np.array([ev.objective([ev.score(x, (), [], _write_index(ev, x))]) for x in hn])
+    lo, hi = boot_ci(ht - hb)
+    report += ["## Holdout (scored once)", "", f"{len(hn)} songs: start {hb.mean():.4f}, tuned {ht.mean():.4f}, "
+               f"gain {np.mean(ht - hb):+.4f} (95% CI {lo:+.4f} .. {hi:+.4f})", ""]
     write_outputs(out_dir, spec, final, all_rows, report)
     print("\n".join(report))
     print(f"\nwrote {out_dir}/report.md, preset.yaml, trials.csv")
@@ -580,13 +748,14 @@ def race(ev, names, groups, args, spec, folds, out_dir):
     if args.start:
         with open(args.start, encoding="utf-8") as f:
             ev.base_overrides = list(yaml.safe_load(f).get("overrides") or [])
-    trials = args.trials or group.get("trials") or spec.get("trials", 50)
+    trials = args.trials or group.get("trials") or spec["trials"]
     report = [f"# Search method race: {group['name']}", "", f"{len(names)} songs, {folds} folds, budget {trials} "
               f"evaluations per search, start {ev.base_overrides}", "",
               "| method | CV gain | 95% CI | in-sample | evaluations | seconds |", "|---|---|---|---|---|---|"]
     for name in args.race.split(","):
         t0 = time.time()
-        res = run_group(ev, names, group["search"], trials, folds, args.seed, [], name, sampler=name.strip())
+        res = run_group(ev, names, group["search"], trials, folds, args.seed, [], name, name.strip(),
+                        group.get("stop", spec["stop"]), spec)
         report.append(f"| {name} | {res['cv_gain']:+.4f} | {res['cv_ci'][0]:+.4f} .. {res['cv_ci'][1]:+.4f} | "
                       f"{res['tuned'] - res['base']:+.4f} | {len(res['rows'])} | {time.time() - t0:.0f} |")
         print(report[-1])
@@ -607,6 +776,7 @@ def _current_values(ev: Evaluator, name: str) -> set[str]:
     out = set()
     for st in p.stages:
         out.add(f"{st.id}.use={st.name}")
+        out.add(f"{st.id}.enabled=true")
         for k, v in vars(st.params).items():
             out.add(f"{st.id}.{k}={json.dumps(v) if not isinstance(v, str) else v}")
     return out

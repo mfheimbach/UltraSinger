@@ -83,10 +83,12 @@ def split_syllables_into_segments(
 def split_syllables_by_contour(
         transcribed_data: list[TranscribedData],
         pitched_data: PitchedData,
-        min_duration: float = 0.08,
-        smooth_frames: int = 5,
-        conf_threshold: float = 0.4,
-        tuning_correction: bool = True) -> list[TranscribedData]:
+        min_duration: float,
+        smooth_frames: int,
+        conf_threshold: float,
+        tuning_correction: bool,
+        tuning_min_frames: int,
+        min_voiced_frames: int) -> list[TranscribedData]:
     """Split syllables where the sung pitch actually changes (alternative to the fixed 16th grid).
 
     Per syllable: smoothed semitone contour of the confident frames, run-length encoded;
@@ -99,7 +101,7 @@ def split_syllables_by_contour(
     times = np.asarray(pitched_data.times, dtype=float)
     freqs = np.asarray(pitched_data.frequencies, dtype=float)
     confs = np.asarray(pitched_data.confidence, dtype=float)
-    tuning = estimate_tuning_offset(pitched_data, conf_threshold) if tuning_correction else 0.0
+    tuning = estimate_tuning_offset(pitched_data, conf_threshold, tuning_min_frames) if tuning_correction else 0.0
     kernel = smooth_frames if smooth_frames % 2 == 1 else smooth_frames + 1
 
     new_data = []
@@ -107,7 +109,7 @@ def split_syllables_by_contour(
         a, b = np.searchsorted(times, [data.start, data.end])
         f, c = freqs[a:b], confs[a:b]
         voiced = (c > conf_threshold) & (f > 0)
-        if data.end - data.start < 2 * min_duration or voiced.sum() < 3:
+        if data.end - data.start < 2 * min_duration or voiced.sum() < min_voiced_frames:
             new_data.append(data)
             continue
         m = np.full(f.shape, np.nan)

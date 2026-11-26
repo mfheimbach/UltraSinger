@@ -5,7 +5,12 @@ import unittest
 import librosa
 from packaging import version
 from unittest.mock import patch, mock_open
-from src.modules.Ultrastar.ultrastar_writer import create_ultrastar_txt, deviation, format_separated_string
+from src.modules.Ultrastar.ultrastar_writer import create_ultrastar_txt, format_separated_string
+from src.modules.Ultrastar.line_breaks import pause_threshold
+
+
+def deviation(gaps):
+    return pause_threshold(gaps, 5)   # min_gaps as in presets/best.yaml (notes.pause_breaks)
 from src.modules.Midi.MidiSegment import MidiSegment
 from src.modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtTag
 
@@ -173,7 +178,7 @@ class TestCreateUltrastarTxt(unittest.TestCase):
         with patch("builtins.open", mock_open()) as mock_file:
             create_ultrastar_txt(
                 midi_segments, ultrastar_file_output,
-                default_ultrastar_class, bpm
+                default_ultrastar_class, bpm, 400.0
             )
         return mock_file
 

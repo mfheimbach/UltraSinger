@@ -20,6 +20,7 @@ from modules.console_colors import red_highlighted
 
 log = logging.getLogger("ultrasinger.lyrics_lookup")
 
+TIMEOUT_S = 20   # network timeout per request
 API = "https://lrclib.net/api"
 TIMESTAMP_RE = re.compile(r"\[\d+:\d+(?:\.\d+)?\]")
 
@@ -27,7 +28,7 @@ TIMESTAMP_RE = re.compile(r"\[\d+:\d+(?:\.\d+)?\]")
 def _query(params: dict) -> list:
     url = f"{API}/search?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": "UltraSinger (https://github.com/rakuri255/UltraSinger)"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
         return json.load(resp)
 
 
@@ -36,7 +37,8 @@ def _clean(text: str) -> str:
     return re.sub(r"\s*[\(\[].*?[\)\]]", "", text or "").strip()
 
 
-def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float) -> list[dict]:
+def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float,
+                 max_candidates: int) -> list[dict]:
     """Candidate lyrics (closest duration first) as {"plain": text, "synced": LRC text or None}."""
     for a, t in ((artist, title), (_clean(artist), _clean(title))):
         if not t:
@@ -51,7 +53,7 @@ def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: fl
         if results:
             results.sort(key=lambda r: abs((r.get("duration") or 0) - duration))
             return [{"plain": r.get("plainLyrics") or TIMESTAMP_RE.sub("", r.get("syncedLyrics") or ""),
-                     "synced": r.get("syncedLyrics")} for r in results[:3]]
+                     "synced": r.get("syncedLyrics")} for r in results[:max_candidates]]
     return []
 
 

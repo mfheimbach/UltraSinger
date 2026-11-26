@@ -12,6 +12,8 @@ from modules.console_colors import blue_highlighted, red_highlighted
 
 log = logging.getLogger("ultrasinger.hyphenation")
 
+PYPHEN_MAX_LEN = 100   # the hyphenation library raises on longer words (library limit)
+
 def language_check(language="en") -> str | None:
     """Check if language is supported"""
 
@@ -107,8 +109,7 @@ def hyphenation(word: str, hyphenator: Hyphenator) -> list[str] | None:
 
     cleaned_string, removed_indices, removed_symbols = __clean_word(word)
 
-    # Hyphenation of word longer than 100 characters throws exception
-    if len(cleaned_string) > 100:
+    if len(cleaned_string) > PYPHEN_MAX_LEN:
         return None
 
     syllabus = hyphenator.syllables(cleaned_string)

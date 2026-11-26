@@ -11,25 +11,28 @@ from modules.Speech_Recognition.TranscribedData import TranscribedData
 log = logging.getLogger("ultrasinger.silence_processing")
 
 def remove_silence_from_transcription_data(audio_path: str, transcribed_data: list[TranscribedData],
-                                           min_silence_ms: int, silence_threshold_db: float) -> list[TranscribedData]:
+                                           min_silence_ms: int, silence_threshold_db: float,
+                                           min_piece: float) -> list[TranscribedData]:
     """Remove silence from given transcription data"""
 
     log.info("Removing silent parts from transcription data"
     )
 
     silence_timestamps = get_silence_sections(audio_path, min_silence_ms, silence_threshold_db)
-    data = remove_silence(silence_timestamps, transcribed_data)
+    data = remove_silence(silence_timestamps, transcribed_data, min_piece)
     return data
 
 
 def get_silence_sections(audio_path: str, min_silence_len: int, silence_thresh: float) -> list[tuple[float, float]]:
     y = AudioSegment.from_wav(audio_path)
     s = silence.detect_silence(y, min_silence_len=min_silence_len, silence_thresh=silence_thresh)
-    s = [((start / 1000), (stop / 1000)) for start, stop in s]  # convert to sec
+    s = [((start / 1000), (stop / 1000)) for start, stop in s]  # ms -> s
     return s
 
 
-def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_data: list[TranscribedData]):
+def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_data: list[TranscribedData],
+                   min_piece: float):
+    """Split syllables at silences; pieces up to min_piece seconds are not kept on their own."""
     new_transcribed_data = []
 
     for data in transcribed_data:
@@ -73,12 +76,12 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
                 if not was_split:
                     data.end = silence_start
 
-                    if data.end - data.start < 0.1:
+                    if data.end - data.start < min_piece:
                         data.start = silence_end
                         data.end = split_end
                         continue
 
-                    if split_data.end - split_data.start <= 0.1:
+                    if split_data.end - split_data.start <= min_piece:
                         continue
 
                     data.is_word_end = False
@@ -87,7 +90,7 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
                     if data.word[-1] == " ":
                         data.word = data.word[:-1]
 
-                if split_data.end - split_data.start > 0.1:
+                if split_data.end - split_data.start > min_piece:
                     was_split = True
                     new_transcribed_data.append(split_data)
                 elif origin_word_end and split_word == "~ " and not data.is_word_end:

@@ -15,7 +15,7 @@ MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10]
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 
-def detect_key_from_audio(audio_path: str) -> tuple[str, str]:
+def detect_key_from_audio(audio_path: str, analysis_seconds: float) -> tuple[str, str]:
     """
     Detect the key and mode (major/minor) of a song from audio file.
 
@@ -27,7 +27,7 @@ def detect_key_from_audio(audio_path: str) -> tuple[str, str]:
     """
     log.info("Detecting musical key")
 
-    y, sr = librosa.load(audio_path, sr=None, duration=60.0)  # Analyze first 60 seconds
+    y, sr = librosa.load(audio_path, sr=None, duration=analysis_seconds)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_avg = np.mean(chroma, axis=1)
     chroma_avg = chroma_avg / np.sum(chroma_avg)
@@ -85,8 +85,8 @@ def get_allowed_notes_for_key(key_note: str, mode: str) -> set[str]:
     return allowed_notes
 
 
-def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float = None,
-                         min_offset: float = 0.0) -> str:
+def quantize_note_to_key(note: str, allowed_notes: set[str], pitch_hint: float | None,
+                         min_offset: float) -> str:
     """
     Quantize a note to the nearest allowed note in the key.
 

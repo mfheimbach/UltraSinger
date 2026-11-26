@@ -22,42 +22,46 @@ from dataclasses import dataclass
 
 log = logging.getLogger("ultrasinger.midi_creator")
 
+MIDI_OCTAVES = 11   # MIDI pitch range 0..131 for the octave search (definition, not tunable)
+_FALLBACKS = {"low_confidence": 0, "unvoiced": 0}
+
 
 @dataclass
 class NotePitchOptions:
-    """How pitch frames inside a note are combined into one note.
-
-    The defaults reproduce the original behaviour (most frequent note name
-    over frames with confidence > 0.4)."""
-    method: str = "mode"            # mode | median | chroma_mode
-    conf_threshold: float = 0.4
-    edge_trim: float = 0.0          # fraction of frames dropped at each end (attack/release, slides)
-    tuning_correction: bool = False  # compensate recordings not tuned to A440
-    fmin: float = 0.0
-    fmax: float = 1e9
-    key_min_offset: float = 0.0     # limited key quantization (see quantize_note_to_key)
+    """How pitch frames inside a note are combined into one note (values from the preset)."""
+    method: str              # mode | median | chroma_mode
+    conf_threshold: float
+    edge_trim: float         # fraction of frames dropped at each end (attack/release, slides)
+    tuning_correction: bool  # compensate recordings not tuned to A440
+    tuning_min_frames: int   # confident frames needed to estimate the tuning offset
+    fmin: float              # frames outside fmin..fmax (Hz) are ignored
+    fmax: float
+    key_min_offset: float    # limited key quantization (see quantize_note_to_key)
 
 
-def estimate_tuning_offset(pitched_data: PitchedData, conf_threshold: float = 0.4) -> float:
+def estimate_tuning_offset(pitched_data: PitchedData, conf_threshold: float, min_frames: int) -> float:
     """Global tuning deviation in semitones (-0.5..0.5), circular mean over confident frames."""
     f = np.asarray(pitched_data.frequencies, dtype=float)
     c = np.asarray(pitched_data.confidence, dtype=float)
     m = (c > conf_threshold) & (f > 0)
-    if m.sum() < 10:
+    if m.sum() < min_frames:
         return 0.0
     frac = librosa.hz_to_midi(f[m]) % 1.0
     angle = np.angle(np.mean(np.exp(2j * np.pi * frac)))
     return float(angle / (2 * np.pi))
 
 
-def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float = 0.0) -> tuple[str, float]:
+def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float) -> tuple[str, float]:
     """Returns the note name and the unrounded MIDI pitch (median of the used frames)."""
     f = np.asarray(freqs, dtype=float)
     c = np.asarray(confs, dtype=float)
     keep = (c > options.conf_threshold) & (f > options.fmin) & (f < options.fmax) & (f > 0)
     if not keep.any():
+        # FALLBACK (counted and reported per run by create_midi_notes_from_pitched_data)
+        _FALLBACKS["low_confidence"] += 1
         keep = f > 0
         if not keep.any():
+            _FALLBACKS["unvoiced"] += 1
             return ("C4", None) if not len(freqs) or freqs[0] <= 0 else (librosa.hz_to_note(float(freqs[0])), None)
     idx = np.flatnonzero(keep)
     if options.edge_trim > 0 and idx.size > 2:
@@ -72,18 +76,17 @@ def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: flo
         r = np.round(m).astype(int)
         chroma = int(np.bincount(r % 12, weights=w, minlength=12).argmax())
         med = np.median(m)
-        midi = int(min((o * 12 + chroma for o in range(11)), key=lambda x: abs(x - med)))
+        midi = int(min((o * 12 + chroma for o in range(MIDI_OCTAVES)), key=lambda x: abs(x - med)))
     else:  # mode: identical to the original Counter over note names
         midi = Counter(np.round(m).astype(int).tolist()).most_common(1)[0][0]
     return librosa.midi_to_note(midi, unicode=False), float(np.median(m))
 
-def create_midi_instrument(midi_segments: list[MidiSegment]) -> object:
+def create_midi_instrument(midi_segments: list[MidiSegment], velocity: int) -> object:
     """Converts an Ultrastar data to a midi instrument"""
 
     log.info("Creating midi instrument")
 
     instrument = pretty_midi.Instrument(program=0, name="Vocals")
-    velocity = 100
 
     for i, midi_segment in enumerate(midi_segments):
         note = pretty_midi.Note(velocity, librosa.note_to_midi(midi_segment.note), midi_segment.start, midi_segment.end)
@@ -160,10 +163,11 @@ def create_midi_notes_from_pitched_data(start_times: list[float], end_times: lis
 
     tuning_offset = 0.0
     if options is not None and options.tuning_correction:
-        tuning_offset = estimate_tuning_offset(pitched_data, options.conf_threshold)
+        tuning_offset = estimate_tuning_offset(pitched_data, options.conf_threshold, options.tuning_min_frames)
         log.info(f"Tuning offset {tuning_offset * 100:+.0f} cents")
 
     midi_segments = []
+    _FALLBACKS.update(low_confidence=0, unvoiced=0)
 
     for index, start_time in enumerate(start_times):
         end_time = end_times[index]
@@ -173,8 +177,9 @@ def create_midi_notes_from_pitched_data(start_times: list[float], end_times: lis
                                                           options, tuning_offset)
         midi_segments.append(midi_segment)
 
-        # todo: Progress?
-        # print(filename + " f: " + str(mean))
+    if _FALLBACKS["low_confidence"]:
+        log.warning(f"FALLBACK: {_FALLBACKS['low_confidence']} of {len(midi_segments)} notes had no confident "
+                    f"pitch frames and used all voiced frames; {_FALLBACKS['unvoiced']} had none and got C4")
     return midi_segments
 
 
@@ -265,12 +270,13 @@ def create_midi_file(
         song_output: str,
         midi_segments: list[MidiSegment],
         basename_without_ext: str,
+        velocity: int,
 ) -> None:
     """Create midi file"""
     log.info(f"Creating Midi with {blue_highlighted('pretty_midi')}")
 
     voice_instrument = [
-        create_midi_instrument(midi_segments)
+        create_midi_instrument(midi_segments, velocity)
     ]
 
     midi_output = os.path.join(song_output, f"{basename_without_ext}.mid")
