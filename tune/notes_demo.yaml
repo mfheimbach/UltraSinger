@@ -11,6 +11,7 @@ objective:          # per song: weighted sum x factors (lyrics gate: wrong words
   multiply: [lyrics_acc]
 min_gain: 0.001
 noise_sigma: 1.0
+step_sigma: 0.25
 fold_gate: true
 effect_probe: true   # drop dimensions that change no chart (masked by a later step)
 sampler: auto

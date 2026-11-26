@@ -82,7 +82,7 @@ BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
 REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective.sum",
-            "min_gain", "noise_sigma", "fold_gate", "effect_probe", "sampler", "trials", "stop", "coordinate_points",
+            "min_gain", "noise_sigma", "step_sigma", "fold_gate", "effect_probe", "sampler", "trials", "stop", "coordinate_points",
             "cost.cheap_seconds", "cost.unknown_seconds"]
 
 
@@ -615,7 +615,10 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
     table = load_noise(spec["data"]["train"])
     noise_sd, noise_src = group_noise(base_p, dims, table, spec["objective"])
     threshold = min_gain(spec, noise_sd)
-    stop = {"tol": threshold, **stop}
+    # search steps may be smaller than the adoption threshold: several sub-noise steps can add up to
+    # a gain that then has to clear ~1 SD out of sample
+    step = max(float(spec["min_gain"]), float(spec["step_sigma"]) * noise_sd)
+    stop = {"tol": step, **stop}
     steps = [st.id for st in base_p.stages]
     dead = probe_effect(ev, names, dims, expensive, cheap, tail_start) if spec["effect_probe"] else []
     if dead:
@@ -630,10 +633,11 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
                                                   float(spec["cost"]["unknown_seconds"]))
     print(f"\n=== {title}\n  expensive (computed per value): {[d.key for d in expensive]}\n"
           f"  cheap (tail from {steps[tail_start] if tail_start < len(steps) else '-'}): {[d.key for d in cheap]}")
-    report += [f"## {title}", "", f"noise SD {noise_sd:.4f} ({noise_src}) -> smallest gain that counts {threshold:.4f}", ""]
+    report += [f"## {title}", "", f"noise SD {noise_sd:.4f} ({noise_src}) -> adoption needs {threshold:.4f}, search steps "
+               f"count from {step:.4f}", ""]
     if dead:
         report += [f"no effect in this configuration (dropped before the search): {dead}", ""]
-    print(f"  noise SD {noise_sd:.4f} ({noise_src}) -> min gain {threshold:.4f}")
+    print(f"  noise SD {noise_sd:.4f} ({noise_src}) -> adoption {threshold:.4f}, step {step:.4f}")
     res = {"title": title, "cv_gain": None, "noise_sd": noise_sd, "min_gain": threshold}
     if folds and folds > 1:
         g = artist_groups(names)

@@ -22,7 +22,7 @@ from pipeline.core import load_preset  # noqa: E402
 from pipeline.run import preset_path  # noqa: E402
 
 SPEC = {"name": "t", "base": "bench", "data": {"train": "x", "holdout": "y", "folds": 3, "gt_language": True},
-        "objective": {"sum": {"usdx_medium": 1.0}}, "min_gain": 0.001, "noise_sigma": 1.0, "fold_gate": True, "effect_probe": False,
+        "objective": {"sum": {"usdx_medium": 1.0}}, "min_gain": 0.001, "noise_sigma": 1.0, "step_sigma": 0.25, "fold_gate": True, "effect_probe": False,
         "sampler": "auto", "trials": 40, "stop": {}, "coordinate_points": 5,
         "cost": {"cheap_seconds": 3.0, "unknown_seconds": 1.0}, "search": {"notes.calibrate.offset": [0.0]}}
 
