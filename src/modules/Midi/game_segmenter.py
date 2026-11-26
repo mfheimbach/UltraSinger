@@ -37,9 +37,10 @@ class GameModel:
             # 59-65 notes from run to run. Seed it so results are reproducible (and cacheable).
             import onnx
             model = onnx.load(os.path.join(model_dir, f"{name}.onnx"))
+            # onnxruntime's engine (minstd) treats seeds 0 and 1 alike, so seed n is passed as n + 1
             for node in model.graph.node:
                 if node.op_type.startswith("Random"):
-                    node.attribute.append(onnx.helper.make_attribute("seed", float(seed)))
+                    node.attribute.append(onnx.helper.make_attribute("seed", float(seed + 1)))
             return ort.InferenceSession(model.SerializeToString(), opts, providers=providers)
         self.encoder, self.dur2bd, self.segmenter = load("encoder"), load("dur2bd"), load("segmenter")
         self.bd2dur, self.estimator = load("bd2dur"), load("estimator")
@@ -90,10 +91,10 @@ def _chunks(syllables, total: float, max_seconds: float = MAX_CHUNK_SECONDS):
 
 def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, model_dir: str,
                             device: str = "cpu", boundary_threshold: float = 0.2, steps: int = 8,
-                            chunk_seconds: float = MAX_CHUNK_SECONDS):
+                            chunk_seconds: float = MAX_CHUNK_SECONDS, seed: int = 0):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
     log.info(f"Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
-    model = GameModel(model_dir, device)
+    model = GameModel(model_dir, device, seed)
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr
     lang = model.language_id(language)

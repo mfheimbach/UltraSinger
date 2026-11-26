@@ -70,6 +70,11 @@ def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: li
                      cache_by=cache_by, chart=os.path.abspath(gt_path) if mode == "repitch" else None,
                      extra=extra, fresh=fresh)
     txt = store["file.txt"]
+    # artifacts for candidate analysis (eval/selection): everything but the file outputs
+    import pickle
+    keep = {k: v for k, v in store.items() if not k.startswith(("file.", "_"))}
+    with open(os.path.join(out, "store.pkl"), "wb") as f:
+        pickle.dump(keep, f)
     with open(os.path.join(out, "run_info.json"), "w", encoding="utf-8") as f:
         json.dump({"txt": os.path.abspath(txt), "mode": mode, "preset": spec.get("name"),
                    "overrides": overrides}, f, indent=2)

@@ -34,15 +34,16 @@ class SeparateVocals(Stage):
     class Params:
         model: str = "htdemucs_ft"            # demucs model
         separator_model: str | None = None    # audio-separator model file instead of demucs (e.g. new models)
+        seed: int = 0                         # demucs' random time shift; other seeds = alternative candidates
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
         from pipeline.core import fingerprint
         p = self.params
-        # the separation module caches by file name; a folder per input content keeps it honest
-        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}")
+        # the separation module caches by file name; a folder per input content (and seed) keeps it honest
+        work = os.path.join(ctx.cache_dir, f"separation_{fingerprint(audio)[:8]}" + (f"_seed{p.seed}" if p.seed else ""))
         folder = separate_vocal_from_audio(work, audio, True, True, ctx.device, DemucsModel(p.model), False,
-                                           p.separator_model)
+                                           p.separator_model, seed=p.seed)
         return {"vocals": os.path.join(folder, "vocals.wav"),
                 "instrumental": os.path.join(folder, "no_vocals.wav")}
 
@@ -343,12 +344,13 @@ class SegmentGAME(Stage):
         boundary_threshold: float = 0.2
         steps: int = 8
         chunk_seconds: float = 30.0
+        seed: int = 0          # GAME samples noise; other seeds = alternative candidates
 
     def run(self, ctx, syllables, audio, language):
         from modules.Midi.game_segmenter import game_notes_per_syllable, split_syllables_by_game
         p = self.params
         notes = game_notes_per_syllable(audio, syllables, language, p.model_dir, ctx.device,
-                                        p.boundary_threshold, p.steps, p.chunk_seconds)
+                                        p.boundary_threshold, p.steps, p.chunk_seconds, p.seed)
         notes_by_id = {id(t): [tuple(n) for n in notes.get(id(t), [])] for t in syllables}
         new_syllables, pitches = split_syllables_by_game(syllables, notes_by_id)
         return {"syllables": new_syllables, "game": pitches}
