@@ -160,7 +160,7 @@ class Evaluator:
         return [f"{s}.language={code}" for s in LANGUAGE_STEPS if s in step_ids]
 
     def pipeline(self, overrides: list[str], name: str) -> Pipeline:
-        ov = self.base_overrides + overrides
+        ov = expand(self.base_overrides + list(overrides))
         p = load_preset(preset_path(self.base), ov)
         return load_preset(preset_path(self.base), self.lang_overrides(name, {st.id for st in p.stages}) + ov)
 
@@ -438,6 +438,14 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
                 continue
             _, ov, _ = tune(ev, tr, expensive, cheap, tail_start, trials, seed + k, log=lambda *_: None,
                             sampler_name=sampler, stop=stop)
+            # same decision rule inside the fold: leave the base only if the training gain beats the
+            # noise (scaled from the song set to this fold's size), else a noise-picked winner is scored
+            if spec.get("fold_gate", True):
+                gain_tr = (per_song_objective(ev, tr, ov, expensive, cheap, tail_start)
+                           - per_song_objective(ev, tr, [], expensive, cheap, tail_start)).mean()
+                if gain_tr <= max(float(spec.get("min_gain", 0.001)),
+                                  float(spec.get("noise_sigma", 1.0)) * noise_sd * np.sqrt(len(names) / len(tr))):
+                    ov = []
             cv_base.append(per_song_objective(ev, te, [], expensive, cheap, tail_start))
             cv_tuned.append(per_song_objective(ev, te, ov, expensive, cheap, tail_start))
         b, t = np.concatenate(cv_base), np.concatenate(cv_tuned)
@@ -469,8 +477,19 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
     return res
 
 
+def expand(overrides: list[str]) -> list[str]:
+    """A choice can carry coupled changes after ';', e.g. segment.game.use: ["segment.contour;
+    -notes.game_pitch"] (contour has no GAME output for game_pitch) -> separate overrides."""
+    out = []
+    for o in overrides:
+        head, *extra = [x.strip() for x in o.split(";")]
+        out += [head] + [x for x in extra if x]
+    return out
+
+
 def write_outputs(out_dir, spec, overrides, rows, report):
     import yaml
+    overrides = expand(overrides)
     with open(os.path.join(out_dir, "preset.yaml"), "w", encoding="utf-8") as f:
         yaml.safe_dump({"name": f"tuned_{spec['name']}", "base": spec["base"], "overrides": overrides}, f,
                        sort_keys=False, allow_unicode=True)

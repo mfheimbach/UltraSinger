@@ -40,7 +40,7 @@ stages:
       syllables.silence_split.min_silence_ms: [25, 50, 100]
   - name: segmentation module
     search:
-      segment.game.use: [segment.game, segment.contour]
+      segment.game.use: [segment.game, "segment.contour; -notes.game_pitch"]   # contour has no GAME pitches
   - name: GAME thresholds
     search:
       segment.game.boundary_threshold: [0.1, 0.15, 0.2, 0.3]
