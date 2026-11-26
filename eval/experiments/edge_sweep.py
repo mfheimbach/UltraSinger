@@ -37,7 +37,7 @@ def main():
     songs = discover(spec["data"]["train"], None)
     ev = tune.Evaluator(spec, args.work, songs)
     ev.base_overrides = list(yaml.safe_load(open(args.start))["overrides"])
-    ev.weights = {**spec["objective"], **{k: 0.0 for k in SHOW if k not in spec["objective"]}}
+    ev.metric_keys = list(dict.fromkeys(ev.metric_keys + SHOW))
     names = [n for n, _ in songs]
     print("start:", ev.base_overrides)
     for key, values in SWEEPS.items():
@@ -51,7 +51,7 @@ def main():
         for v in values:
             ov = dims[0].override(v)
             per = [ev.score(n, tuple(ov for d in exp), [ov] if cheap else [], tail) for n in names]
-            obj = ev.objective([{k: d[k] for k in spec["objective"]} for d in per])
+            obj = ev.objective(per)
             means = [np.nanmean([d.get(k) if d.get(k) is not None else np.nan for d in per]) for k in SHOW]
             print(f"| {v} | {obj:.4f} | " + " | ".join(f"{m:.3f}" for m in means) + " |", flush=True)
 

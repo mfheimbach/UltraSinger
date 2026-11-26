@@ -1,12 +1,28 @@
 # Noise levels per engine: SD of the tuning objective (mean over the song set) when the module's
 # chaos is re-rolled (seeds, or tiny placebo changes of its input). Keyed by song set, then by
 # engine (stage name[model]). The tuner uses, for each group, the first chaotic module at or after
-# the group's earliest step; a module with another engine borrows the value with a warning.
-# Re-measure when an engine changes. TODO: more seeds/placebos on GPU (n=3..6 is rough).
+# the group's earliest step; another engine or another objective is a logged FALLBACK.
+# Re-measure when an engine or the objective changes. TODO: 10+ seeds/placebos on GPU (n=3 is rough),
+# and per-song replicate metrics so the SD can be recomputed for any objective / subset.
 eval_singstar/bench:
-  separate[htdemucs_ft]: {sd: 0.0298, n: 3, how: "demucs seeds 0-2 (eval_work_ng/runs/sel_sep*)", date: 2026-11-25,
-                          objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}}
-  transcribe.whisper[large-v3-turbo]: {sd: 0.0139, n: 6, how: "placebo: prepare silence muting -50/-60 dB x 25/50/100 ms, no trend (staged run group 4)", date: 2026-11-26,
-                          objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}}
-  segment.game[GAME-1.0.3-small-onnx]: {sd: 0.0044, n: 3, how: "GAME seeds 0-2 (sel_sep0, selg_game1-2)", date: 2026-11-25,
-                          objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}}
+  separate[htdemucs_ft]:
+    sd: 0.0515
+    n: 3
+    how: "demucs seeds 0-2 (runs sel_sep0-2, re-scored), preset bench; old objective: 0.0298"
+    date: 2026-11-26
+    objective: &obj
+      sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
+      multiply: [lyrics_acc]
+  transcribe.whisper[large-v3-turbo]:
+    sd: 0.024
+    n: 6
+    how: "ESTIMATE: old placebo SD 0.0139 (prepare silence muting -50/-60 dB x 25/50/100 ms) scaled by the
+      demucs ratio 0.0515/0.0298; measure it"
+    date: 2026-11-26
+    objective: *obj
+  segment.game[GAME-1.0.3-small-onnx]:
+    sd: 0.0038
+    n: 3
+    how: "GAME seeds 0-2 (runs sel_sep0, selg_game1-2, re-scored); old objective: 0.0044"
+    date: 2026-11-26
+    objective: *obj

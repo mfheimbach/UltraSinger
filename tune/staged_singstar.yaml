@@ -11,11 +11,14 @@ data:
   holdout: eval_singstar/selection   # mandatory; disjoint from train, scored once at the end
   folds: 3
   gt_language: true
-objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}
+objective:          # per song: weighted sum x factors (lyrics gate: wrong words break a chart), mean over songs
+  sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
+  multiply: [lyrics_acc]
 # noise levels per engine come from tune/noise.yaml (see there)
 noise_sigma: 1.0    # threshold = 1 noise SD
 min_gain: 0.001     # absolute floor (scale of the objective)
 fold_gate: true     # inside CV folds, leave the base only for gains beyond the threshold too
+effect_probe: true  # drop dimensions that change no chart (masked by a later step)
 sampler: auto       # grid when everything is discrete and fits the budget, else TPE
 trials: 50          # per group unless the group sets its own
 stop: {patience: 30}   # search ends at trials, or no gain > min gain for 30 trials, whichever first
@@ -65,9 +68,10 @@ stages:
       notes.from_pitch.conf_threshold: {low: 0.1, high: 0.7}
       notes.from_pitch.edge_trim: {low: 0.0, high: 0.3}
       notes.from_pitch.tuning_correction: [true, false]
-      notes.from_pitch.key_min_offset: {low: 0.0, high: 0.3}
-      notes.game_pitch.quantize_to_key: [true, false]
-      notes.game_pitch.key_min_offset: {low: 0.0, high: 0.3}
+      notes.quantize_key.enabled:
+        true:
+          notes.quantize_key.min_offset: {low: 0.0, high: 0.5}
+        false: {}
       notes.merge.slides:
         false: {}
         true:

@@ -9,5 +9,6 @@ steps:
   - use: syllables.from_chart
   - use: pitch.rmvpe
   - use: notes.from_pitch
+  - use: notes.quantize_key
   - use: write.ultrastar
     params: {stems: false}

@@ -154,7 +154,7 @@ def test_contracts():
 
 # ----------------------------------------------------------------------------- golden tail
 
-TAIL = ["notes.from_pitch", "notes.game_pitch", "notes.merge", "notes.snap_edges", "notes.calibrate", "notes.pause_breaks",
+TAIL = ["notes.from_pitch", "notes.game_pitch", "notes.quantize_key", "notes.merge", "notes.snap_edges", "notes.calibrate", "notes.pause_breaks",
         "write.ultrastar", "write.conventions"]
 
 

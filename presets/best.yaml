@@ -30,8 +30,9 @@ params:
                     tuning_min_frames: 10, min_voiced_frames: 3}
   segment.grid: {}
   notes.from_pitch: {method: chroma_mode, conf_threshold: 0.4, edge_trim: 0.0, tuning_correction: true,
-                     tuning_min_frames: 10, fmin: 0.0, fmax: 20000.0, quantize_to_key: true, key_min_offset: 0.1}
-  notes.game_pitch: {quantize_to_key: true, key_min_offset: 0.1}
+                     tuning_min_frames: 10, fmin: 0.0, fmax: 20000.0}
+  notes.game_pitch: {}
+  notes.quantize_key: {min_offset: 0.1}
   notes.merge: {slides: false, slide_max_semitones: 2, slide_max_sixteenths: 2.0, breath_pause_sixteenths: 1.0,
                 same_pitch_syllables: true}
   notes.snap_edges: {max_shift: 0.5, conf: 0.1, min_gap: 0.03, min_len: 0.05}
@@ -65,6 +66,7 @@ steps:
   - use: segment.game
   - use: notes.from_pitch
   - use: notes.game_pitch
+  - use: notes.quantize_key
   - use: notes.merge
   - use: notes.snap_edges
   - use: notes.calibrate

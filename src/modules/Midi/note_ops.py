@@ -21,18 +21,28 @@ def trim_overlaps(items):
     return out
 
 
-def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offset: float):
-    from modules.Midi.key_quantize import quantize_note_to_key
+def apply_game_pitches(midi_segments, game_pitches) -> None:
+    """GAME's pitch replaces the pitch-track note where GAME has one (unquantized; see quantize_notes)."""
     if len(midi_segments) != len(game_pitches):
         raise ValueError(f"GAME pitches ({len(game_pitches)}) and notes ({len(midi_segments)}) don't line up: "
                          "notes.game_pitch must follow notes.from_pitch on the same syllables")
     for seg, midi in zip(midi_segments, game_pitches):
         if midi is None:
             continue
-        note = librosa.midi_to_note(int(round(midi)), unicode=False)
-        if allowed_notes is not None:
-            note = quantize_note_to_key(note, allowed_notes, midi, key_min_offset)
+        seg.note = librosa.midi_to_note(int(round(midi)), unicode=False)
+        seg.pitch = float(midi)
+
+
+def quantize_notes(midi_segments, allowed_notes: set[str], min_offset: float) -> int:
+    """Out-of-key notes to the nearest note of the key (limited by min_offset, using each note's
+    unrounded pitch). Returns how many notes changed."""
+    from modules.Midi.key_quantize import quantize_note_to_key
+    changed = 0
+    for seg in midi_segments:
+        note = quantize_note_to_key(seg.note, allowed_notes, seg.pitch, min_offset)
+        changed += note != seg.note
         seg.note = note
+    return changed
 
 
 def snap_note_edges(midi_segments: list[MidiSegment], pitched_data: PitchedData, max_shift: float,

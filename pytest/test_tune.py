@@ -22,7 +22,7 @@ from pipeline.core import load_preset  # noqa: E402
 from pipeline.run import preset_path  # noqa: E402
 
 SPEC = {"name": "t", "base": "bench", "data": {"train": "x", "holdout": "y", "folds": 3, "gt_language": True},
-        "objective": {"usdx_medium": 1.0}, "min_gain": 0.001, "noise_sigma": 1.0, "fold_gate": True,
+        "objective": {"sum": {"usdx_medium": 1.0}}, "min_gain": 0.001, "noise_sigma": 1.0, "fold_gate": True, "effect_probe": False,
         "sampler": "auto", "trials": 40, "stop": {}, "coordinate_points": 5,
         "cost": {"cheap_seconds": 3.0, "unknown_seconds": 1.0}, "search": {"notes.calibrate.offset": [0.0]}}
 
@@ -45,6 +45,8 @@ class FakeEvaluator:
     def score(self, song, exp_ov, cheap_ov, tail_start):
         cfg = dict(o.split("=", 1) for o in list(exp_ov) + list(cheap_ov))
         self.calls.append(cfg)
+        self.last_chart = getattr(self, "last_chart", {})
+        self.last_chart[song] = repr(round(self.f(cfg), 9))
         return {"v": self.f(cfg) + 0.01 * (hash(song) % 7)}
 
     def objective(self, per_song):
@@ -136,7 +138,7 @@ def test_coordinate_ignores_moves_below_tol():
 
 def test_spec_without_holdout_or_keys_fails_loudly():
     tune.validate_spec(SPEC)
-    for drop in ("min_gain", "sampler", "stop"):
+    for drop in ("min_gain", "sampler", "stop", "objective"):
         bad = {k: v for k, v in SPEC.items() if k != drop}
         with pytest.raises(SystemExit, match=drop):
             tune.validate_spec(bad)
@@ -146,7 +148,7 @@ def test_spec_without_holdout_or_keys_fails_loudly():
 
 def test_group_noise_uses_first_chaotic_module_downstream(caplog):
     p = load_preset(preset_path("bench"))
-    obj = {"usdx_medium": 1.0}
+    obj = {"sum": {"usdx_medium": 1.0}}
     table = {"separate[htdemucs_ft]": {"sd": 0.03, "objective": obj},
              "transcribe.whisper[large-v3-turbo]": {"sd": 0.014, "objective": obj},
              "segment.game[GAME-1.0.3-small-onnx]": {"sd": 0.004, "objective": obj}}
@@ -157,7 +159,7 @@ def test_group_noise_uses_first_chaotic_module_downstream(caplog):
     assert sd("notes.calibrate.offset") == 0.0      # deterministic downstream
     with caplog.at_level(logging.WARNING):
         tune.group_noise(p, [tune.Dim("separate.model", [0])], {"separate[htdemucs]": {"sd": 0.02}}, obj)
-        tune.group_noise(p, [tune.Dim("separate.model", [0])], table, {"wer": -1.0})
+        tune.group_noise(p, [tune.Dim("separate.model", [0])], table, {"sum": {"wer": -1.0}})
     assert sum("FALLBACK" in r.getMessage() for r in caplog.records) == 2
 
 
@@ -203,3 +205,22 @@ def test_edge_hits_flag_values_at_the_range_bounds():
                               "notes.calibrate.offset": {"low": -0.15, "high": 0.0}})
     hits = tune.edge_hits(dims, ["notes.calibrate.end_extension=0.1919", "notes.calibrate.offset=-0.07"])
     assert len(hits) == 1 and hits[0].startswith("notes.calibrate.end_extension")
+
+
+def test_objective_sum_times_factors():
+    ev = tune.Evaluator.__new__(tune.Evaluator)
+    ev.terms, ev.factors = {"a": 1.0, "b": 0.5}, ["c"]
+    assert ev.song_objective({"a": 0.6, "b": 0.4, "c": 0.5}) == pytest.approx(0.4)
+    assert ev.song_objective({"a": 0.6, "b": 0.4}) == pytest.approx(0.8)            # missing factor = 1
+    assert ev.song_objective({"a": 0.6, "b": float("nan"), "c": 1.0}) == pytest.approx(0.6)
+
+
+def test_effect_probe_drops_dimensions_that_change_nothing(monkeypatch):
+    monkeypatch.setattr(tune, "step_cost", lambda name: 0.01)
+    f = lambda cfg: float(cfg.get("notes.calibrate.offset", -0.07))   # noqa: E731  (end_extension is dead)
+    ev = FakeEvaluator(f)
+    dims = tune.parse_search({"notes.calibrate.offset": [-0.1, 0.0], "notes.calibrate.end_extension": [0.0, 0.1],
+                              "notes.merge.slides": {False: {}, True: {"notes.merge.slide_max_semitones": [1, 3]}}})
+    dead = tune.probe_effect(ev, ["a"], dims, [], dims, 0)
+    assert "notes.calibrate.offset" not in dead
+    assert {"notes.calibrate.end_extension", "notes.merge.slides", "notes.merge.slide_max_semitones"} <= set(dead)

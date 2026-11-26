@@ -6,10 +6,13 @@ data:
   holdout: eval_singstar/selection
   folds: 3
   gt_language: true
-objective: {usdx_medium: 1.0}
+objective:          # per song: weighted sum x factors (lyrics gate: wrong words break a chart), mean over songs
+  sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
+  multiply: [lyrics_acc]
 min_gain: 0.001
 noise_sigma: 1.0
 fold_gate: true
+effect_probe: true   # drop dimensions that change no chart (masked by a later step)
 sampler: auto
 stop: {patience: 30}
 coordinate_points: 7
@@ -19,6 +22,6 @@ search:
   notes.calibrate.end_extension: {low: 0.0, high: 0.15}
   notes.snap_edges.max_shift: {low: 0.0, high: 0.8}
   notes.snap_edges.conf: {low: 0.02, high: 0.4}
-  notes.game_pitch.key_min_offset: {low: 0.0, high: 0.3}
+  notes.quantize_key.min_offset: {low: 0.0, high: 0.5}
   notes.merge.same_pitch_syllables: [true, false]
 trials: 30

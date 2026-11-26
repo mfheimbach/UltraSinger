@@ -11,7 +11,9 @@ A tuning spec (YAML) names a base preset, the data, the objective and the search
       holdout: eval_singstar/selection  # mandatory, disjoint: scored once, at the very end
       folds: 4                          # cross-validation folds over train, grouped by artist
       gt_language: true                 # language from the chart (short windows)
-    objective: {usdx_medium: 1.0, wer: -0.25}   # weighted sum of per-song means
+    objective:                          # per song: weighted sum x factors; mean over songs
+      sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
+      multiply: [lyrics_acc]
     min_gain: 0.001                     # adopt only gains above max(min_gain, noise_sigma x noise SD)
     noise_sigma: 1.0                    # noise SD per engine: tune/noise.yaml
     fold_gate: true
@@ -79,8 +81,8 @@ LOWER_IS_BETTER = {"wer", "cer", "pitch_mae"}
 BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
-REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective",
-            "min_gain", "noise_sigma", "fold_gate", "sampler", "trials", "stop", "coordinate_points",
+REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective.sum",
+            "min_gain", "noise_sigma", "fold_gate", "effect_probe", "sampler", "trials", "stop", "coordinate_points",
             "cost.cheap_seconds", "cost.unknown_seconds"]
 
 
@@ -278,7 +280,10 @@ class Evaluator:
         self.songs = [name for name, _ in songs]
         self.prefix_cache: dict = {}
         self.tmp = tempfile.mkdtemp(prefix="tune_")
-        self.weights = spec["objective"]
+        self.terms = dict(spec["objective"]["sum"])
+        self.factors = list(spec["objective"].get("multiply") or [])
+        self.metric_keys = list(self.terms) + [k for k in self.factors if k not in self.terms]
+        self.last_chart: dict[str, str] = {}   # song -> chart text of the last score() (no-effect probe)
 
     def lang_overrides(self, name: str, step_ids: set[str]) -> list[str]:
         if not self.spec.get("data", {}).get("gt_language"):
@@ -315,14 +320,22 @@ class Evaluator:
         store = copy.deepcopy(self.prefix(name, expensive_ov, tail_start))
         tail = _sub(p, tail_start, len(p.stages))
         store = tail.run(self._ctx(name, no_cache=True), store)
+        with open(store["file.txt"], encoding="utf-8") as f:
+            self.last_chart[name] = f.read()
         pred = usdx.read(store["file.txt"])
         m = metrics.evaluate(self.gt[name], pred)
-        return {k: m.get(k) for k in self.weights}
+        return {k: m.get(k) for k in self.metric_keys}
 
     def song_objective(self, d: dict) -> float:
-        """Weighted sum of one song's metrics (a metric a song doesn't have, e.g. WER for
-        non-Latin lyrics or line F1 without breaks, is left out for that song)."""
-        return float(sum(w * d[k] for k, w in self.weights.items() if d.get(k) is not None and d.get(k) == d.get(k)))
+        """One song: weighted sum of the `sum` terms times the `multiply` factors. A metric a song
+        doesn't have (WER for non-Latin lyrics, line F1 without breaks) is left out / counts as 1."""
+        def ok(k):
+            return d.get(k) is not None and d.get(k) == d.get(k)
+        total = sum(w * d[k] for k, w in self.terms.items() if ok(k))
+        for k in self.factors:
+            if ok(k):
+                total *= d[k]
+        return float(total)
 
     def objective(self, per_song: list[dict]) -> float:
         """Mean over songs of the per-song objective (the same aggregation everywhere)."""
@@ -551,6 +564,32 @@ def boot_ci(x: np.ndarray, n: int = BOOT_SAMPLES) -> tuple[float, float]:
     return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
 
 
+def probe_effect(ev: Evaluator, songs: list[str], dims: list[Dim], expensive: list[Dim], cheap: list[Dim],
+                 tail_start: int) -> list[str]:
+    """Dimensions that change no chart: each one is set to a few values (choices, or low/mid/high),
+    everything else at the base (parents set so it is active). Identical charts on every song =
+    no effect in this configuration (e.g. masked by a later step). Returns their keys."""
+    base = base_config(ev, songs[0], dims)
+    grid = coordinate_sampler_trials(dims, 3)
+    default = {d.key: base.get(d.key, grid[d.key][0]) for d in dims}
+    by_key = {d.key: d for d in dims}
+    dead = []
+    for d in dims:
+        need, cur = {}, d
+        while cur.parent is not None:          # activate the chain of parents
+            need[cur.parent[0]] = cur.parent[1]
+            cur = by_key[cur.parent[0]]
+        charts = set()
+        for v in grid[d.key]:
+            cfg = normalize(dims, {**default, **need, d.key: v}, default)
+            _evaluate(ev, songs, dims, expensive, cheap, tail_start, cfg)
+            charts.add(tuple(ev.last_chart[s] for s in songs))
+        if len(charts) == 1:
+            dead.append(d.key)
+    # children of a dead parent go too
+    return [d.key for d in dims if d.key in dead or (d.parent and d.parent[0] in dead)]
+
+
 def edge_hits(dims: list[Dim], overrides: list[str], share: float = 0.05) -> list[str]:
     """Range dimensions whose chosen value lies within `share` of the range from a bound."""
     chosen = dict(o.split("=", 1) for o in overrides)
@@ -578,9 +617,22 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
     threshold = min_gain(spec, noise_sd)
     stop = {"tol": threshold, **stop}
     steps = [st.id for st in base_p.stages]
+    dead = probe_effect(ev, names, dims, expensive, cheap, tail_start) if spec["effect_probe"] else []
+    if dead:
+        import logging
+        logging.getLogger("ultrasinger.tune").warning(f"NO EFFECT in this configuration (dropped): {dead}")
+        dims = [d for d in dims if d.key not in dead]
+        if not dims:
+            report += [f"## {title}", "", f"no dimension changes any chart: {dead}", ""]
+            return {"title": title, "cv_gain": None, "rows": [], "overrides": [], "base": 0.0, "tuned": 0.0,
+                    "min_gain": threshold, "noise_sd": noise_sd, "dead": dead}
+        expensive, cheap, tail_start = split_dims(base_p, dims, float(spec["cost"]["cheap_seconds"]),
+                                                  float(spec["cost"]["unknown_seconds"]))
     print(f"\n=== {title}\n  expensive (computed per value): {[d.key for d in expensive]}\n"
           f"  cheap (tail from {steps[tail_start] if tail_start < len(steps) else '-'}): {[d.key for d in cheap]}")
     report += [f"## {title}", "", f"noise SD {noise_sd:.4f} ({noise_src}) -> smallest gain that counts {threshold:.4f}", ""]
+    if dead:
+        report += [f"no effect in this configuration (dropped before the search): {dead}", ""]
     print(f"  noise SD {noise_sd:.4f} ({noise_src}) -> min gain {threshold:.4f}")
     res = {"title": title, "cv_gain": None, "noise_sd": noise_sd, "min_gain": threshold}
     if folds and folds > 1:

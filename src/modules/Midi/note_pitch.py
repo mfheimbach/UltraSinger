@@ -9,7 +9,6 @@ import librosa
 import numpy as np
 
 from modules.Midi.MidiSegment import MidiSegment
-from modules.Midi.key_quantize import quantize_note_to_key
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Pitcher.tuning import estimate_tuning_offset
 from modules.Speech_Recognition.TranscribedData import TranscribedData
@@ -30,7 +29,6 @@ class NotePitchOptions:
     tuning_min_frames: int   # confident frames needed to estimate the tuning offset
     fmin: float              # frames outside fmin..fmax (Hz) are ignored
     fmax: float
-    key_min_offset: float    # limited key quantization (see quantize_note_to_key)
 
 
 def note_from_frames(freqs, confs, options: NotePitchOptions, tuning_offset: float) -> tuple[str, float]:
@@ -76,9 +74,10 @@ def find_nearest_index(array: list[float], value: float) -> int:
     return idx
 
 
-def notes_from_pitch(syllables: list[TranscribedData], pitched_data: PitchedData, allowed_notes: set[str] | None,
+def notes_from_pitch(syllables: list[TranscribedData], pitched_data: PitchedData,
                      options: NotePitchOptions) -> list[MidiSegment]:
-    """One MidiSegment per syllable: the pitch of its frames (options), quantized to the key if given."""
+    """One MidiSegment per syllable: the pitch of its frames (options), unquantized; the unrounded
+    pitch is kept on the note for notes.quantize_key."""
     tuning_offset = 0.0
     if options.tuning_correction:
         tuning_offset = estimate_tuning_offset(pitched_data, options.conf_threshold, options.tuning_min_frames)
@@ -93,9 +92,7 @@ def notes_from_pitch(syllables: list[TranscribedData], pitched_data: PitchedData
         else:
             freqs, confs = pitched_data.frequencies[start:end], pitched_data.confidence[start:end]
         note, pitch_hint = note_from_frames(freqs, confs, options, tuning_offset)
-        if allowed_notes is not None:
-            note = quantize_note_to_key(note, allowed_notes, pitch_hint, options.key_min_offset)
-        notes.append(MidiSegment(note, s.start, s.end, str(s.word)))
+        notes.append(MidiSegment(note, s.start, s.end, str(s.word), pitch=pitch_hint))
     if _FALLBACKS["low_confidence"]:
         log.warning(f"FALLBACK: {_FALLBACKS['low_confidence']} of {len(notes)} notes had no confident "
                     f"pitch frames and used all voiced frames; {_FALLBACKS['unvoiced']} had none and got C4")

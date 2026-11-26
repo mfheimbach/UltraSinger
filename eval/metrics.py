@@ -53,6 +53,10 @@ def _chroma_dist(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.minimum(d, 12 - d)
 
 
+def _f1(a: float, b: float) -> float:
+    return 2 * a * b / (a + b) if a == a and b == b and a + b > 0 else float("nan")
+
+
 def _safe(num, den):
     return float(num) / float(den) if den else float("nan")
 
@@ -98,6 +102,9 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
         "chroma_acc_cond": _safe((have & (dist == 0)).sum(), have.sum()),
         "usdx_medium": _safe(usdx_hits.sum(), usdx_total.sum()),
         "usdx_medium_precision": _safe((pred_pitched & (pdist <= 1)).sum(), pred_pitched.sum()),
+        # symmetric: chart time hit and our time on the right pitch (harmonic mean)
+        "usdx_medium_f1": _f1(_safe(usdx_hits.sum(), usdx_total.sum()),
+                              _safe((pred_pitched & (pdist <= 1)).sum(), pred_pitched.sum())),
         # continuous: mean octave-folded distance in semitones (0..6) where both have a note
         "pitch_mae": float(dist[have].mean()) if have.any() else float("nan"),
         # USDX hard: exact pitch class required
@@ -240,7 +247,9 @@ def lyric_metrics(gt: Song, pred: Song) -> dict:
     ref, hyp = _norm_words(gt.words()), _norm_words(pred.words())
     if not ref:
         return {}
-    return {"wer": jiwer.wer(ref, hyp or "<empty>"), "cer": jiwer.cer(ref, hyp or "<empty>")}
+    wer = jiwer.wer(ref, hyp or "<empty>")
+    # 0..1 factor for objectives: a chart with wrong words is broken whatever its notes
+    return {"wer": wer, "cer": jiwer.cer(ref, hyp or "<empty>"), "lyrics_acc": max(0.0, 1.0 - wer)}
 
 
 def evaluate(gt: Song, pred: Song) -> dict:

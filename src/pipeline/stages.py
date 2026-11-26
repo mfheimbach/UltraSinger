@@ -498,7 +498,7 @@ class SegmentGrid(Stage):
 class NotesFromPitch(Stage):
     """syllables + pitch track (+ key) -> notes, one per syllable piece."""
     name = "notes.from_pitch"
-    inputs = {"syllables": "syllables|words", "pitch": "pitch", "key": "key"}
+    inputs = {"syllables": "syllables|words", "pitch": "pitch"}
     outputs = {"notes": "notes"}
 
     @dataclass
@@ -510,37 +510,48 @@ class NotesFromPitch(Stage):
         tuning_min_frames: int     # confident frames needed to estimate the tuning offset
         fmin: float                # frames outside fmin..fmax (Hz) are ignored
         fmax: float
-        quantize_to_key: bool
-        key_min_offset: float
 
-    def run(self, ctx, syllables, pitch, key):
-        from modules.Midi.key_quantize import get_allowed_notes_for_key
+    def run(self, ctx, syllables, pitch):
         from modules.Midi.note_pitch import NotePitchOptions, notes_from_pitch
         p = self.params
         options = NotePitchOptions(method=p.method, conf_threshold=p.conf_threshold, edge_trim=p.edge_trim,
                                    tuning_correction=p.tuning_correction, tuning_min_frames=p.tuning_min_frames,
-                                   fmin=p.fmin, fmax=p.fmax, key_min_offset=p.key_min_offset)
-        allowed = get_allowed_notes_for_key(*key) if p.quantize_to_key else None
-        return {"notes": notes_from_pitch(syllables, pitch, allowed, options)}
+                                   fmin=p.fmin, fmax=p.fmax)
+        return {"notes": notes_from_pitch(syllables, pitch, options)}
 
 
 @stage
 class NotesGamePitch(Stage):
     """notes + GAME pitches -> notes with GAME's pitch (key-quantized like the others)."""
     name = "notes.game_pitch"
-    inputs = {"notes": "notes", "game": "aux.game", "key": "key"}
+    inputs = {"notes": "notes", "game": "aux.game"}
+    outputs = {"notes": "notes"}
+
+    def run(self, ctx, notes, game):
+        from modules.Midi.note_ops import apply_game_pitches
+        apply_game_pitches(notes, game)
+        return {"notes": notes}
+
+
+@stage
+class QuantizeKey(Stage):
+    """notes + key -> out-of-key notes moved into the key. One step after the last step that sets
+    pitches, so the setting acts on the final pitch (it used to live, twice, in from_pitch and
+    game_pitch, where game_pitch masked from_pitch's copy)."""
+    name = "notes.quantize_key"
+    inputs = {"notes": "notes", "key": "key"}
     outputs = {"notes": "notes"}
 
     @dataclass
     class Params:
-        quantize_to_key: bool
-        key_min_offset: float
+        min_offset: float   # move a note only if its unrounded pitch is at least this far from the
+                            # note's centre (0 = always): a clean chromatic note stays
 
-    def run(self, ctx, notes, game, key):
+    def run(self, ctx, notes, key):
         from modules.Midi.key_quantize import get_allowed_notes_for_key
-        from modules.Midi.note_ops import apply_game_pitches
-        allowed = get_allowed_notes_for_key(*key) if self.params.quantize_to_key else None
-        apply_game_pitches(notes, game, allowed, self.params.key_min_offset)
+        from modules.Midi.note_ops import quantize_notes
+        n = quantize_notes(notes, get_allowed_notes_for_key(*key), self.params.min_offset)
+        logging.getLogger("ultrasinger.stages").info(f"key quantization moved {n} of {len(notes)} notes")
         return {"notes": notes}
 
 
