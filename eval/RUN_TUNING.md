@@ -54,7 +54,7 @@ nohup uv run python eval/tune.py tune/staged_singstar_full.yaml > tune_run.log 2
   timings decide which parameters are cheap to search.
 - **Groups:** 19, early stages first. Each writes `tune/out/staged_singstar_full/report.md`, `preset.yaml` and `trials.csv`
   as it finishes.
-- **Holdout:** at the end, the selection set (36 windows) is scored once with the start and the tuned configuration.
+- **Holdout:** at the end, `tune_holdout` (~50 windows, other artists) is scored once with the start and the tuned configuration.
 
 **If it stops**, look at the last `=== N. <group>` line in the log and resume there (report and trials are appended):
 
