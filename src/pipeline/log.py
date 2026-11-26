@@ -117,7 +117,8 @@ class _ConsoleFormatter(logging.Formatter):
             msg = f"[{record.name}] {msg}"
         elif record.levelno >= logging.WARNING:
             msg = f"{record.levelname.lower()}: {msg}"
-        return f"{ULTRASINGER_HEAD} {msg}"
+        stamp = time.strftime("%H:%M:%S", time.localtime(record.created))
+        return f"{stamp} {ULTRASINGER_HEAD} {msg}"
 
 
 class _JsonFormatter(logging.Formatter):

@@ -78,6 +78,11 @@ from pipeline.core import Context, Pipeline, load_preset  # noqa: E402
 from pipeline.run import media_from_filename, preset_path  # noqa: E402
 
 LOWER_IS_BETTER = {"wer", "cer", "pitch_mae"}
+def print(*args, **kwargs):  # noqa: A001  (every tuner line gets a timestamp, like the pipeline log)
+    import builtins
+    builtins.print(time.strftime("%H:%M:%S"), *args, **{"flush": True, **kwargs})
+
+
 BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
