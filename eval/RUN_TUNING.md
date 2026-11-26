@@ -7,20 +7,25 @@ A crashed or stopped run resumes where it stopped.
 
 ```bash
 git fetch && git checkout pipeline-refactor && git pull
-uv sync                                   # or: pip install -e . (project deps)
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env   # uv, if missing
+uv sync
 uv pip install -r eval/requirements.txt   # mir_eval, jiwer, optuna
 # GPU: GAME and RMVPE use onnxruntime; for CUDA there:  uv pip install onnxruntime-gpu
 ```
 
-- **GAME model:** download `GAME-1.0.3-small-onnx` from https://github.com/openvpi/GAME/releases.
-  Unpack it so that `~/.cache/game/GAME-1.0.3-small-onnx/config.json` exists.
+- **GAME model** (the zip holds the folder `GAME-1.0.3-small-onnx/`):
+  ```bash
+  mkdir -p ~/.cache/game && cd ~/.cache/game
+  curl -LO https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-small-onnx.zip
+  unzip GAME-1.0.3-small-onnx.zip && rm GAME-1.0.3-small-onnx.zip && cd -
+  ```
 - **Data:** unpack `ultrasinger_eval_windows.tar` in the repo root. That gives `eval_singstar/bench` (12 windows) and
   `eval_singstar/selection` (36 windows, the holdout). The folder is gitignored and must never be pushed.
 
 ## 2. Preflight
 
 ```bash
-python eval/preflight.py tune/staged_singstar.yaml
+uv run python eval/preflight.py tune/staged_singstar.yaml
 ```
 
 - It checks packages, ffmpeg, GPU, the spec (every search value builds a valid pipeline), the data, the GAME model and
@@ -31,7 +36,7 @@ python eval/preflight.py tune/staged_singstar.yaml
 ## 3. Run
 
 ```bash
-nohup python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1 &     # Linux/macOS
+nohup uv run python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1 &     # Linux/macOS
 # Windows: run  python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1  in a terminal you leave open
 ```
 
@@ -45,7 +50,7 @@ nohup python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1 &     # 
 **If it stops**, look at the last `=== N. <group>` line in the log and resume there (report and trials are appended):
 
 ```bash
-nohup python eval/tune.py tune/staged_singstar.yaml --from-group N >> tune_run.log 2>&1 &
+nohup uv run python eval/tune.py tune/staged_singstar.yaml --from-group N >> tune_run.log 2>&1 &
 ```
 
 ## 4. Send back
