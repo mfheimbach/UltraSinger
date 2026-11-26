@@ -2,4 +2,4 @@
 # and with the pause rule instead of planned line breaks. Language comes from the chart (eval option --gt-language).
 name: bench
 base: best
-overrides: [-lyrics.lrclib, -words.correct_lyrics, notes.line_breaks.use=notes.pause_breaks, write.ultrastar.stems=false]
+overrides: [notes.line_breaks.use=notes.pause_breaks, write.ultrastar.stems=false]

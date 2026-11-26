@@ -41,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--midi", action="store_true", help="also write a MIDI file")
     ap.add_argument("--no-stems", action="store_true", help="don't write vocal/instrumental audio")
     ap.add_argument("--no-lookup", action="store_true", help="no MusicBrainz lookup: metadata from the file name")
+    ap.add_argument("--lyrics", action="store_true",
+                    help="look up the lyrics on LRCLIB and correct the transcription with them (optional module)")
     ap.add_argument("--cpu", action="store_true", help="never use the GPU")
     ap.add_argument("--cache", help="persistent cache folder (default: inside the song folder, removed at the end)")
     ap.add_argument("--keep-cache", action="store_true", help="keep the song's cache folder")
@@ -72,6 +74,9 @@ def preset_and_overrides(args) -> tuple[str, list[str]]:
                                                              "words.align_text") if s in ids]
     if args.no_stems and "write.ultrastar" in ids:
         extra.append("write.ultrastar.stems=false")
+    if args.lyrics and "lyrics.lrclib" not in ids:
+        after = "words.place_untimed" if "words.place_untimed" in ids else "transcribe.whisper"
+        extra += [f"+lyrics.lrclib@after={after}", "+words.correct_lyrics@after=lyrics.lrclib"]
     if args.midi and "write.midi" not in ids:
         extra.append("+write.midi")
     return name, extra + list(args.set)

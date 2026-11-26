@@ -56,8 +56,6 @@ steps:
   - use: key
   - use: transcribe.whisper
   - use: words.place_untimed
-  - use: lyrics.lrclib
-  - use: words.correct_lyrics
   - use: words.strip_punctuation
   - use: syllables.hyphenate
   - use: syllables.silence_split
