@@ -22,5 +22,6 @@ eval_work/
 eval_work_*
 
 # SingStar eval audio + charts (private, not redistributable)
-eval_singstar   # private chart data (folder or symlink to it): never commit
+# private chart data (folder or symlink to it): never commit
+eval_singstar
 tune/out/
