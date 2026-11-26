@@ -1,0 +1,9 @@
+# Noise levels per engine: SD of the tuning objective (mean over the song set) when the module's
+# chaos is re-rolled (seeds, or tiny placebo changes of its input). Keyed by song set, then by
+# engine (stage name[model]). The tuner uses, for each group, the first chaotic module at or after
+# the group's earliest step; a module with another engine borrows the value with a warning.
+# Re-measure when an engine changes. TODO: more seeds/placebos on GPU (n=3..6 is rough).
+eval_singstar/bench:
+  separate[htdemucs_ft]: {sd: 0.0298, n: 3, how: "demucs seeds 0-2 (eval_work_ng/runs/sel_sep*)", date: 2026-11-25}
+  transcribe.whisper[large-v3-turbo]: {sd: 0.0139, n: 6, how: "placebo: prepare silence muting -50/-60 dB x 25/50/100 ms, no trend (staged run group 4)", date: 2026-11-26}
+  segment.game[GAME-1.0.3-small-onnx]: {sd: 0.0044, n: 3, how: "GAME seeds 0-2 (sel_sep0, selg_game1-2)", date: 2026-11-25}

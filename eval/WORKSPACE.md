@@ -35,6 +35,14 @@ bigger sets.
   on the bench); expensive ones (separation, Whisper) are discrete choices computed on demand.
 - Reports artist-grouped CV gain with CI, the in-sample tuned config, fANOVA importance, holdout once.
   Output: `tune/out/<name>/report.md`, `preset.yaml` (base + overrides), `trials.csv`.
+- Staged runs (`stages:`): each group starts from the last best; resume with
+  `--start tune/out/<name>/preset.yaml --from-group N`. A group's search stops at whichever comes first:
+  `trials`, no gain > min gain for `stop.patience` trials, `stop.max_seconds`. A group is adopted only if
+  its CV gain > min gain = max(`min_gain`, `noise_sigma` x noise SD of the first chaotic module at or
+  after the group's earliest step).
+- Noise levels per engine live in `tune/noise.yaml` (per song set; re-measure when an engine changes,
+  other engines borrow with a warning). **TODO (GPU run):** measure them with 10+ seeds / placebos
+  per chaotic module (separate, Whisper, GAME); current n=3..6 is rough.
 - `tune/notes_demo.yaml`: note parameters on the bench, CV gain +0.005 (CI -0.007..+0.015): the
   current values are near optimal for usdx_medium alone; end_extension wants to grow (metric gaming,
   add voicing precision to the objective).

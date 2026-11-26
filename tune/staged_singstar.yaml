@@ -1,0 +1,83 @@
+# Staged tuning for the SingStar chart style, early stages first: each group is tuned with
+# everything upstream fixed at the result so far, and kept only if its cross-validated gain beats the
+# smallest gain that counts = max(min_gain, noise_sigma x noise SD of the step).
+# Expensive groups use value lists (each value = rerun from that step, disk-cached); cheap groups
+# (note stages, line breaks) are searched jointly with TPE.
+name: staged_singstar
+base: bench
+overrides: [notes.line_breaks.enabled=true]   # tune line breaks too (bench drops them)
+data:
+  train: eval_singstar/bench
+  folds: 3
+  gt_language: true
+objective: {usdx_medium: 1.0, usdx_hard: 0.5, line_f1: 0.25, wer: -0.25}
+# noise levels per engine come from tune/noise.yaml (see there)
+noise_sigma: 1.0    # threshold = 1 noise SD
+min_gain: 0.001     # absolute floor (scale of the objective)
+stop: {patience: 30}   # search ends at trials, or no gain > min gain for 30 trials, whichever first
+stages:
+  - name: separation model
+    search:
+      separate.model: [htdemucs_ft, htdemucs]
+  - name: vocal preparation switches
+    search:
+      prepare.denoise: [true, false]
+      prepare.mute_silence: [true, false]
+  - name: denoise strength
+    search:
+      prepare.denoise_reduction_db: [40, 70, 97]
+  - name: silence muting level
+    search:
+      prepare.silence_threshold_db: [-60, -50, -40]
+      prepare.min_silence_ms: [25, 50, 100]
+  - name: whisper precision
+    search:
+      transcribe.whisper.compute_type: [int8, float32]
+  - name: syllables
+    search:
+      syllables.hyphenate.enabled: [true, false]
+      syllables.silence_split.silence_threshold_db: [-60, -50, -40]
+      syllables.silence_split.min_silence_ms: [25, 50, 100]
+  - name: segmentation module
+    search:
+      segment.game.use: [segment.game, segment.contour]
+  - name: GAME thresholds
+    search:
+      segment.game.boundary_threshold: [0.1, 0.15, 0.2, 0.3]
+      segment.game.presence_threshold: [0.1, 0.2, 0.3]
+  - name: GAME decoding
+    search:
+      segment.game.radius: [1, 2, 3]
+      segment.game.steps: [4, 8, 16]
+  - name: notes
+    trials: 150
+    search:
+      notes.from_pitch.method: [chroma_mode, median, mode]
+      notes.from_pitch.conf_threshold: {low: 0.1, high: 0.7}
+      notes.from_pitch.edge_trim: {low: 0.0, high: 0.3}
+      notes.from_pitch.tuning_correction: [true, false]
+      notes.from_pitch.key_min_offset: {low: 0.0, high: 0.3}
+      notes.game_pitch.quantize_to_key: [true, false]
+      notes.game_pitch.key_min_offset: {low: 0.0, high: 0.3}
+      notes.merge.slides: [false, true]
+      notes.merge.slide_max_semitones: {low: 1, high: 3}
+      notes.merge.same_pitch_syllables: [true, false]
+      notes.snap_edges.max_shift: {low: 0.0, high: 0.8}
+      notes.snap_edges.conf: {low: 0.02, high: 0.4}
+      notes.snap_edges.min_gap: {low: 0.0, high: 0.08}
+      notes.snap_edges.min_len: {low: 0.02, high: 0.12}
+      notes.calibrate.offset: {low: -0.15, high: 0.0}
+      notes.calibrate.end_extension: {low: 0.0, high: 0.2}
+  - name: line breaks
+    trials: 120
+    search:
+      notes.line_breaks.intercept: {low: 0.0, high: 3.0}
+      notes.line_breaks.w_pause: {low: 0.2, high: 1.5}
+      notes.line_breaks.w_punct: {low: 0.0, high: 1.0}
+      notes.line_breaks.chars_mean: {low: 15.0, high: 30.0}
+      notes.line_breaks.chars_sd: {low: 5.0, high: 15.0}
+      notes.line_breaks.chars_max: [38, 45, 60]
+      notes.line_breaks.dur_median: {low: 1.2, high: 3.0}
+      notes.line_breaks.dur_log_sd: {low: 0.3, high: 1.0}
+      notes.line_breaks.prior_weight: {low: 0.2, high: 2.0}
+      notes.line_breaks.max_words: [12, 16, 24]

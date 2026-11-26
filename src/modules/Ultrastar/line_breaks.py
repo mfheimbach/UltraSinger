@@ -54,9 +54,22 @@ def _words(midi_segments: list[MidiSegment]) -> list[tuple[int, int, float, floa
     return words
 
 
+_PUNCT_MEMO: dict = {}
+
+
 def punctuation_probabilities(words: list[str], model_name: str, device: str = "cpu",
                               chunk: int = 150, context: int = 30) -> np.ndarray:
-    """P(punctuation after each word) from a token-classification punctuation model."""
+    """P(punctuation after each word) from a token-classification punctuation model.
+    Memoized per word sequence within a process (tuning runs plan the same text many times)."""
+    key = (tuple(words), model_name)
+    if key not in _PUNCT_MEMO:
+        if len(_PUNCT_MEMO) > 2000:
+            _PUNCT_MEMO.clear()
+        _PUNCT_MEMO[key] = _punctuation_probabilities(words, model_name, device, chunk, context)
+    return _PUNCT_MEMO[key].copy()
+
+
+def _punctuation_probabilities(words, model_name, device, chunk, context) -> np.ndarray:
     import torch
     from transformers import AutoModelForTokenClassification, AutoTokenizer
 
