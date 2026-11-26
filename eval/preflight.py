@@ -92,14 +92,24 @@ def main():
     for role in ("train", "holdout"):
         path = spec["data"][role]
         songs = discover(path, None) if os.path.isdir(path) else []
-        missing_audio = []
+        missing_audio, bad_lang, langs = [], [], {}
         import usdx
+        from run_song import language_code
         for name, txt in songs:
-            a = usdx.read(txt).audio_path()
+            song = usdx.read(txt)
+            a = song.audio_path()
             if not a or not os.path.isfile(a):
                 missing_audio.append(name)
-        check(f"data {role} ({path})", bool(songs) and not missing_audio,
-              f"{len(songs)} songs" + (f", audio missing: {missing_audio[:3]}" if missing_audio else ""))
+            if spec["data"]["gt_language"]:
+                try:
+                    code = language_code(song.language)
+                    langs[code] = langs.get(code, 0) + 1
+                except ValueError as e:
+                    bad_lang.append(f"{name}: {e}")
+        check(f"data {role} ({path})", bool(songs) and not missing_audio and not bad_lang,
+              f"{len(songs)} songs, languages {dict(sorted(langs.items()))}"
+              + (f", audio missing: {missing_audio[:3]}" if missing_audio else "")
+              + (f", language problems: {bad_lang[:3]}" if bad_lang else ""))
 
     # models and disk
     params = resolve_preset(preset_path("best"))["params"]

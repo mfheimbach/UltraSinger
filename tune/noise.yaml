@@ -23,3 +23,18 @@ eval_singstar/bench:
     how: "GAME seeds 0-2 (runs sel_sep0, selg_game1-2, re-scored); earlier objectives: 0.0044, 0.0038"
     date: 2026-11-26
     objective: *obj
+
+eval_singstar/tune_train:
+  # ESTIMATES until measured (GPU noise run): bench values x sqrt(12 / 150) for ~150 windows
+  separate[htdemucs_ft]:
+    sd: 0.0059
+    n: 3
+    how: "ESTIMATE: bench demucs-seed SD 0.0208 x sqrt(12/150); measure it"
+    date: 2026-11-26
+    objective: *obj
+  segment.game[GAME-1.0.3-small-onnx]:
+    sd: 0.0014
+    n: 3
+    how: "ESTIMATE: bench GAME-seed SD 0.0048 x sqrt(12/150); measure it"
+    date: 2026-11-26
+    objective: *obj

@@ -1,4 +1,5 @@
 split,bucket,edition,song,group,note
+excluded,,SingStar Chart Hits,A.R. Rahman & The Pussycat Dolls feat. Nicole Scherzinger - Jai Ho! (You Are My Destiny),A.R. Rahman,Hindi (outlier)
 excluded,,SingStar Bollywood,Aashiqui - Nazar Ke Samne,Aashiqui,Hindi (outlier)
 excluded,,SingStar Bollywood,Aksar - Jhalak Dikhla Ja,Aksar,Hindi (outlier)
 excluded,,SingStar Bollywood,Chalte Chalte - Chalte chalte,Chalte Chalte,Hindi (outlier)
@@ -30,6 +31,9 @@ excluded,,SingStar Bollywood,Rang De Basanti - Rang De Basanti,Rang De Basanti,H
 excluded,,SingStar Bollywood,Rang De Basanti - Roobaroo,Rang De Basanti,Hindi (outlier)
 excluded,,SingStar Bollywood,Salaam-e-Ishq - Salaam-e-ishq,Salaam-e-Ishq,Hindi (outlier)
 excluded,en_pop,SingStar Anthems,LeAnn Rimes - Can’t Fight The Moonlight (Album Version),LeAnn Rimes,second cut of the same song
+excluded,en_retro,SingStar ’90s [UK-US],Seal - Kiss From A Rose (Album Version),Seal,second cut of the same song
+excluded,en_retro,SingStar ’90s [US],Stone Temple Pilots - Plush (Acoustic),Stone Temple Pilots,second cut of Plush
+excluded,pl,SingStar ’80s [PL],Ostrowska - Szklana Pogoda,Ostrowska,same song and singer as Lombard - Szklana pogoda
 hard,de_party,SingStar Fußballhits,Bayern-Fans United - Stern des Südens,Bayern-Fans United,fan choir
 hard,de_party,SingStar Fußballhits,Bruder Leichtfuß - Deutsche Nationalhymne (Stadion Version),Bruder Leichtfuß,stadium crowd
 hard,de_party,SingStar Fußballhits,Die Original Deutschmacher - Lebenslang Grünweiß (Werder Bremen 2004),Die Original Deutschmacher,fan choir
@@ -38,6 +42,11 @@ hard,de_party,SingStar Fußballhits,"Höhner - Wenn nicht jetzt, wann dann (Fuß
 hard,de_party,SingStar Après-Ski Party,"Höhner - Wenn nicht jetzt, wann dann (Halbfinal Version)",Höhner,alt. crowd version
 hard,de_party,SingStar Après-Ski Party 2,Mike der Bademeister - Eskimo (Der BRRR-Song),Mike der Bademeister,novelty / shouted
 hard,de_party,SingStar Après-Ski Party,Wolfgang Petry - Wahnsinn (Live),Wolfgang Petry,live
+hard,de_retro,SingStar ’80s [DE],Geier Sturzflug - Bruttosozialprodukt (ZDF Hitparade),Geier Sturzflug,live TV version
+hard,en_retro,SingStar ’90s [US],Arrested Development - Tennessee,Arrested Development,rap
+hard,en_retro,SingStar ’90s [UK-US],MC Hammer - U Can’t Touch This,MC Hammer,rap
+hard,en_retro,SingStar ’90s [UK-US],Sir Mix-A-Lot - Baby Got Back,Sir Mix-A-Lot,rap
+hard,nl,SingStar ’80s [NL],Meneer Kaktus - Het grote meneer Kaktus lied,Meneer Kaktus,children's TV novelty
 reserve,de_party,SingStar Après-Ski Party 2,Anna-Maria Zimmermann - Frei sein,Anna-Maria Zimmermann,same artist as a test song
 reserve,de_party,SingStar Fußballhits,Chris Rabatz feat. The KingZ - Die Hände zum Himmel,Chris Rabatz,same artist as a test song
 reserve,de_party,SingStar Fußballhits,Christina Stürmer - Fieber,Christina Stürmer,same artist as a test song
@@ -51,6 +60,7 @@ reserve,en_pop,SingStar Boy Bands vs Girl Bands,Busted - Air Hostess,Busted,same
 reserve,en_pop,SingStar Boy Bands vs Girl Bands,East 17 - Let It Rain,East 17,same artist as a test song
 reserve,en_pop,SingStar Boy Bands vs Girl Bands,Five - Everybody Get Up,Five,same artist as a test song
 reserve,en_pop,SingStar Boy Bands vs Girl Bands,McFly - All About You,McFly,same artist as a test song
+reserve,en_retro,SingStar ’90s [US],Stone Temple Pilots - Plush,Stone Temple Pilots,same artist as a test song
 test,de_party,SingStar Après-Ski Party 2,Anna-Maria Zimmermann - 1000 Träume weit (Tornerò),Anna-Maria Zimmermann,
 test,de_party,SingStar Fußballhits,Chris Rabatz - Steht auf… (wenn ihr feiern wollt),Chris Rabatz,
 test,de_party,SingStar Après-Ski Party,DJ BoBo - Chihuahua,DJ BoBo,
@@ -74,6 +84,8 @@ test,de_poprock,SingStar Deutsch Rock-Pop,Hund am Strand - Jungen Mädchen,Hund 
 test,de_poprock,SingStar Deutsch Rock-Pop,Ohrbooten - An alle Ladies,Ohrbooten,
 test,de_poprock,SingStar Deutsch Rock-Pop,OleSoul - Was kostet die Welt,OleSoul,
 test,de_poprock,SingStar Deutsch Rock-Pop,Tokio Hotel - Durch den Monsun,Tokio Hotel,
+test,de_retro,SingStar ’80s [DE],Joachim Witt - Goldener Reiter,Joachim Witt,
+test,de_retro,SingStar ’80s [DE],Trio Rio - New York - Rio - Tokyo,Trio Rio,
 test,de_rock,SingStar Amped [DE],In Extremo - Küss mich,In Extremo,
 test,en_party,SingStar Après-Ski Party 2,Agnes - Release Me,Agnes,
 test,en_party,SingStar Après-Ski Party 2,Alexandra Burke feat. Pitbull - All Night Long,Alexandra Burke,
@@ -98,6 +110,18 @@ test,en_pop,SingStar Chart Hits,The Last Goodnight - Pictures Of You,The Last Go
 test,en_pop,SingStar Anthems,The Weather Girls - It’s Raining Men,The Weather Girls,
 test,en_pop,SingStar Anthems,Ultra Naté - Free,Ultra Naté,
 test,en_pop,SingStar Anthems,Whitney Houston - I Wanna Dance With Somebody (Who Loves Me),Whitney Houston,
+test,en_retro,SingStar ’90s [US],Color Me Badd - I Wanna Sex You Up,Color Me Badd,
+test,en_retro,SingStar ’80s [DE],Cyndi Lauper - She Bop,Cyndi Lauper,
+test,en_retro,SingStar ’90s [UK-US],Gin Blossoms - Hey Jealousy,Gin Blossoms,
+test,en_retro,SingStar ’90s [UK],Lisa Loeb & Nine Stories - Stay (I Missed You),Lisa Loeb,
+test,en_retro,SingStar ’90s [UK-US],Natalie Imbruglia - Torn,Natalie Imbruglia,
+test,en_retro,SingStar ’90s [US],Nirvana - Lithium,Nirvana,
+test,en_retro,SingStar ’90s [UK-US],Savage Garden - I Want You,Savage Garden,
+test,en_retro,SingStar ’90s [UK-US],Seal - Kiss From A Rose,Seal,
+test,en_retro,SingStar ’90s [UK],Sixpence None The Richer - Kiss Me,Sixpence None The Richer,
+test,en_retro,SingStar ’90s [US],Soundgarden - Black Hole Sun,Soundgarden,
+test,en_retro,SingStar ’90s [UK],The B-52’s - Love Shack,The B-52’s,
+test,en_retro,SingStar ’90s [UK-US],The Cranberries - Zombie,The Cranberries,
 test,en_rock,SingStar Amped [US],Audioslave - Cochise,Audioslave,
 test,en_rock,SingStar Amped [DE],Beatsteaks - Cut Off The Top,Beatsteaks,
 test,en_rock,SingStar Amped [DE],Blind - Break Away,Blind,
@@ -110,6 +134,24 @@ test,en_rock,SingStar Amped [US],Stone Temple Pilots - Vasoline,Stone Temple Pil
 test,en_rock,SingStar Amped [US],Talking Heads - Burning Down The House,Talking Heads,
 test,en_rock,SingStar Amped [AU],Tonic - If You Could Only See,Tonic,
 test,en_rock,SingStar Amped [US],Yeah Yeah Yeahs - Gold Lion,Yeah Yeah Yeahs,
+test,fr,SingStar ’80s [FR],Céline Dion - D’amour et d’amitié,Céline Dion,
+test,fr,SingStar ’80s [FR],Julie Pietri - Ève lève-toi,Julie Pietri,
+test,fr,SingStar ’80s [FR],La Compagnie Créole - Le bal masqué,La Compagnie Créole,
+test,fr,SingStar ’80s [FR],Stéphanie - Ouragan,Stéphanie,
+test,it,SingStar top.it,Alex Britti - Prendere o lasciare,Alex Britti,
+test,it,SingStar ’80s [IT],Giuni Russo - Un’estate al mare,Giuni Russo,
+test,it,SingStar top.it,Jovanotti - Mi fido di te,Jovanotti,
+test,it,SingStar ’80s [IT],Pupo - Su di noi,Pupo,
+test,it,SingStar ’80s [IT],Ricchi & Poveri - Sarà perché ti amo,Poveri,
+test,nl,SingStar ’80s [NL],Drukwerk - Carolien,Drukwerk,
+test,nl,SingStar ’80s [NL],Frank Boeijen Groep - Kronenburg park (Ga die wereld uit),Frank Boeijen Groep,
+test,nl,SingStar ’80s [NL],Johan Verminnen - Mooie dagen,Johan Verminnen,
+test,nl,SingStar ’80s [NL],Koos Alberts - Zijn het je ogen,Koos Alberts,
+test,nl,SingStar ’80s [NL],Rob de Nijs - Zondag,Rob de Nijs,
+test,pl,SingStar ’80s [PL],Kobranocka - Kocham cię jak Irlandię,Kobranocka,
+test,pl,SingStar ’80s [PL],Lombard - Szklana pogoda,Lombard,
+test,pl,SingStar ’80s [PL],Seweryn Krajewski - Baw Mnie,Seweryn Krajewski,
+test,pl,SingStar ’80s [PL],VOX - Bananowy Song,VOX,
 train,de_party,SingStar Après-Ski Party 2,Andreas Martin - Ich fang Dir den Mond,Andreas Martin,
 train,de_party,SingStar Après-Ski Party 2,Anton feat. DJ Ötzi - Anton aus Tirol,Anton,
 train,de_party,SingStar Après-Ski Party 2,Culcha Candela - Eiskalt,Culcha Candela,
@@ -154,6 +196,12 @@ train,de_poprock,SingStar Deutsch Rock-Pop,Wir sind Helden - Nur ein Wort,Wir si
 train,de_poprock,SingStar Deutsch Rock-Pop,Wir sind Helden - Von hier an blind,Wir sind Helden,
 train,de_poprock,SingStar Deutsch Rock-Pop,Xavier Naidoo - Dieser Weg,Xavier Naidoo,
 train,de_poprock,SingStar Deutsch Rock-Pop,"Yvonne Catterfeld - Sag mir, was meinst du",Yvonne Catterfeld,
+train,de_retro,SingStar ’80s [DE],Geier Sturzflug - Bruttosozialprodukt,Geier Sturzflug,
+train,de_retro,SingStar ’80s [DE],Hubert Kah - Sternenhimmel,Hubert Kah,
+train,de_retro,SingStar ’80s [DE],Ixi - Der Knutschfleck,Ixi,
+train,de_retro,SingStar ’80s [DE],Münchener Freiheit - Ohne dich (schlaf ich heut Nacht nicht ein),Münchener Freiheit,
+train,de_retro,SingStar ’80s [DE],Nino de Angelo - Jenseits von Eden (Album Version),Nino de Angelo,
+train,de_retro,SingStar ’80s [DE],Westernhagen - Sexy,Westernhagen,
 train,de_rock,SingStar Amped [DE],Die Toten Hosen - Warum werde ich nicht satt,Die Toten Hosen,
 train,en_party,SingStar Après-Ski Party,Bellamy Brothers - Let Your Love Flow,Bellamy Brothers,
 train,en_party,SingStar Après-Ski Party 2,Chubby Checker - Let’s Twist Again,Chubby Checker,
@@ -166,7 +214,6 @@ train,en_party,SingStar Après-Ski Party 2,Medina - You And I,Medina,
 train,en_party,SingStar Après-Ski Party,Right Said Fred - You’re My Mate,Right Said Fred,
 train,en_party,SingStar Après-Ski Party 2,Wanda Jackson - Let’s Have A Party,Wanda Jackson,
 train,en_pop,SingStar Chart Hits,3OH!3 - Don’t Trust Me,3OH!3,
-train,en_pop,SingStar Chart Hits,A.R. Rahman & The Pussycat Dolls feat. Nicole Scherzinger - Jai Ho! (You Are My Destiny),A.R. Rahman,
 train,en_pop,SingStar Chart Hits,Alex Lloyd - Amazing,Alex Lloyd,
 train,en_pop,SingStar Boy Bands vs Girl Bands,Bananarama - Cruel Summer,Bananarama,
 train,en_pop,SingStar Anthems,Bananarama - I Heard A Rumour,Bananarama,
@@ -207,6 +254,39 @@ train,en_pop,SingStar Chart Hits,Wes Carr - You,Wes Carr,
 train,en_pop,SingStar Boy Bands vs Girl Bands,Westlife - Flying Without Wings,Westlife,
 train,en_pop,SingStar Boy Bands vs Girl Bands,Westlife - Swear It Again,Westlife,
 train,en_pop,SingStar Chart Hits,Wolfmother - New Moon Rising,Wolfmother,
+train,en_retro,SingStar ’90s [UK],All Saints - Never Ever,All Saints,
+train,en_retro,SingStar ’90s [UK],Aqua - Barbie Girl,Aqua,
+train,en_retro,SingStar ’90s [UK],Barenaked Ladies - One Week,Barenaked Ladies,
+train,en_retro,SingStar ’90s [UK],Billy Ray Cyrus - Achy Breaky Heart,Billy Ray Cyrus,
+train,en_retro,SingStar ’90s [US],Boyz II Men - Motownphilly,Boyz II Men,artist already in train
+train,en_retro,SingStar ’90s [UK],Crash Test Dummies - MMM MMM MMM MMM,Crash Test Dummies,
+train,en_retro,SingStar ’90s [UK-US],Divinyls - I Touch Myself,Divinyls,artist already in train
+train,en_retro,SingStar ’80s [NL],Dolly Dots - Do Wah Diddy Diddy,Dolly Dots,
+train,en_retro,SingStar ’90s [UK],EMF - Unbelievable,EMF,
+train,en_retro,SingStar ’80s [FR],F. R. David - Words,F. R. David,
+train,en_retro,SingStar ’90s [US],Hootie & The Blowfish - Only Wanna Be With You,Hootie,
+train,en_retro,SingStar ’80s [FR],INXS - Need You Tonight,INXS,
+train,en_retro,SingStar ’80s [FR],Imagination - Just An Illusion,Imagination,
+train,en_retro,SingStar ’90s [US],"Jesus Jones - Right Here, Right Now",Jesus Jones,
+train,en_retro,SingStar ’90s [US],Len - Steal My Sunshine,Len,
+train,en_retro,SingStar ’80s [DE],Limahl - The Never Ending Story,Limahl,
+train,en_retro,SingStar ’90s [UK],M People - Moving On Up,M People,
+train,en_retro,SingStar ’80s [DE],Marietta - Fire And Ice,Marietta,
+train,en_retro,SingStar ’90s [UK],Meredith Brooks - Bitch,Meredith Brooks,
+train,en_retro,SingStar ’80s [DE],"Modern Talking - Cheri, Cheri Lady",Modern Talking,
+train,en_retro,SingStar ’90s [UK-US],New Kids On The Block - Step By Step,New Kids On The Block,
+train,en_retro,SingStar ’90s [UK],Nick Cave & The Bad Seeds + Kylie Minogue - Where The Wild Roses Grow,Kylie Minogue,
+train,en_retro,SingStar ’90s [US],Paula Abdul with The Wild Pair - Opposites Attract,Paula Abdul with The Wild Pair,
+train,en_retro,SingStar ’90s [UK-US],Poison - Unskinny Bop,Poison,
+train,en_retro,SingStar ’90s [UK-US],R.E.M. - Everybody Hurts,R.E.M.,
+train,en_retro,SingStar ’90s [UK],Roachford - Only To Be With You,Roachford,
+train,en_retro,SingStar ’90s [US],Santana feat. Rob Thomas - Smooth,Rob Thomas,
+train,en_retro,SingStar ’90s [UK],Spice Girls - Wannabe,Spice Girls,artist already in train
+train,en_retro,SingStar ’90s [UK-US],Spin Doctors - Two Princes,Spin Doctors,
+train,en_retro,SingStar ’90s [UK-US],Technotronic feat. Felly - Pump Up The Jam,Felly,
+train,en_retro,SingStar ’90s [UK],The Cardigans - Lovefool,The Cardigans,
+train,en_retro,SingStar ’90s [UK],The Cure - Friday I’m In Love,The Cure,artist already in train
+train,en_retro,SingStar ’90s [UK],Wet Wet Wet - Love Is All Around,Wet Wet Wet,
 train,en_rock,SingStar Amped [AU],4 Non Blondes - What’s Up,4 Non Blondes,
 train,en_rock,SingStar Amped [US],Alice In Chains - Would,Alice In Chains,
 train,en_rock,SingStar Amped [DE],Bonfire - You Make Me Feel,Bonfire,
@@ -235,3 +315,45 @@ train,en_rock,SingStar Amped [AU],The Saints - (I’m) Stranded,The Saints,
 train,en_rock,SingStar Amped [DE],Wolfmother - Woman,Wolfmother,
 train,en_rock,SingStar Amped [US],Yes - Owner Of A Lonely Heart,Yes,
 train,en_rock,SingStar Amped [US],ZZ Top - Gimme All Your Lovin’,ZZ Top,
+train,fr,SingStar ’80s [FR],Corynne Charby - Boule de flipper,Corynne Charby,
+train,fr,SingStar ’80s [FR],David & Jonathan - Est-ce que tu viens pour les vacances,David,
+train,fr,SingStar ’80s [FR],Elsa - T’en va pas,Elsa,
+train,fr,SingStar ’80s [FR],Gold - Plus près des étoiles,Gold,
+train,fr,SingStar ’80s [FR],"Laroche-Valmont - T’as le look, coco",Laroche-Valmont,
+train,fr,SingStar ’80s [FR],Lio - Les brunes comptent pas pour des prunes,Lio,
+train,fr,SingStar ’80s [FR],Ottawan - T’es O.K,Ottawan,
+train,fr,SingStar ’80s [FR],Philippe Lavil - Il tape sur des bambous,Philippe Lavil,
+train,fr,SingStar ’80s [FR],Sabine Paturel - Les bêtises,Sabine Paturel,
+train,fr,SingStar ’80s [FR],Téléphone - Cendrillon,Téléphone,
+train,it,SingStar ’80s [IT],Donatella Rettore - Kobra,Donatella Rettore,
+train,it,SingStar ’80s [IT],"Gianni Morandi, Enrico Ruggeri & Umberto Tozzi - Si può dare di più",Enrico Ruggeri,
+train,it,SingStar ’80s [IT],Grazia Di Michele - Le ragazze di Gauguin,Grazia Di Michele,
+train,it,SingStar ’80s [IT],Litfiba - El diablo,Litfiba,
+train,it,SingStar ’80s [IT],Loredana Bertè - Non sono una signora,Loredana Bertè,
+train,it,SingStar ’80s [IT],Marcella Bella - Nell’aria,Marcella Bella,
+train,it,SingStar ’80s [IT],RAF - Cosa resterà degli anni ’80,RAF,
+train,it,SingStar ’80s [IT],Stadio - Chiedi chi erano i Beatles,Stadio,
+train,it,SingStar ’80s [IT],Umberto Balsamo - Balla,Umberto Balsamo,
+train,it,SingStar ’80s [IT],Umberto Tozzi - Gloria,Enrico Ruggeri,
+train,it,SingStar ’80s [IT],Vasco Rossi - Vita spericolata,Vasco Rossi,
+train,nl,SingStar ’80s [NL],Benny Neyman - Vrijgezel,Benny Neyman,
+train,nl,SingStar ’80s [NL],Circus Custers - Verliefd,Circus Custers,
+train,nl,SingStar ’80s [NL],Clouseau - Anne,Clouseau,
+train,nl,SingStar ’80s [NL],Clouseau - Daar gaat ze,Clouseau,
+train,nl,SingStar zingt met Disney,Disney’s 101 Dalmatiërs - Cruella De Vil,Disney’s 101 Dalmatiërs,
+train,nl,SingStar zingt met Disney,Disney’s Peter Pan - En je zweeft,Disney’s Peter Pan,
+train,nl,SingStar zingt met Disney,Disney’s Peter Pan - Wij volgen de leider,Disney’s Peter Pan,
+train,nl,SingStar ’80s [NL],Erik Mesie - Zonder jou,Erik Mesie,
+train,nl,SingStar ’80s [NL],Hans de Booij - Alle vrouwen,Hans de Booij,
+train,nl,SingStar ’80s [NL],Het Goede Doel - België (Is er leven op Pluto…),Het Goede Doel,
+train,nl,SingStar ’80s [NL],Kadanz - Intimiteit,Kadanz,
+train,pl,SingStar ’80s [PL],Budka Suflera - Za ostatni grosz,Budka Suflera,
+train,pl,SingStar ’80s [PL],Kapitan Nemo - Twoja Lorelei,Kapitan Nemo,
+train,pl,SingStar ’80s [PL],Klaus Mitffoch - Jezu jak się cieszę,Klaus Mitffoch,
+train,pl,SingStar ’80s [PL],Lady Pank - Kryzysowa Narzeczona,Lady Pank,
+train,pl,SingStar ’80s [PL],"Maanam - Kocham cię, kochanie moje",Maanam,
+train,pl,SingStar ’80s [PL],Majka Jeżowska - A ja wolę moją mamę,Majka Jeżowska,
+train,pl,SingStar ’80s [PL],Papa Dance - Nasz Disneyland,Papa Dance,
+train,pl,SingStar ’80s [PL],Rudi Schuberth - Córka rybaka,Rudi Schuberth,
+train,pl,SingStar ’80s [PL],Tilt - Runął już ostatni mur,Tilt,
+train,pl,SingStar ’80s [PL],Zbigniew Wodecki - Chałupy Welcome To,Zbigniew Wodecki,

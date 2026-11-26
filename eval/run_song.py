@@ -28,7 +28,8 @@ sys.path.insert(0, HERE)
 import usdx  # noqa: E402
 
 LANG_ALIASES = {"englisch": "en", "deutsch": "de", "german": "de", "english": "en", "spanisch": "es",
-                "französisch": "fr", "italienisch": "it"}
+                "französisch": "fr", "italienisch": "it", "niederländisch": "nl", "dutch": "nl",
+                "polnisch": "pl", "polish": "pl", "french": "fr", "italian": "it"}
 LANGUAGE_STEPS = ("transcribe.whisper", "transcribe.qwen3", "words.align_text")
 
 
@@ -39,10 +40,12 @@ def language_code(name: str) -> str:
     if key in LANG_ALIASES:
         return LANG_ALIASES[key]
     import langcodes
+    if not key:
+        raise ValueError("chart has no #LANGUAGE (needed with gt_language)")
     try:
         return langcodes.find(key).language
     except LookupError:
-        return "en"
+        raise ValueError(f"unknown chart language {name!r} (add it to LANG_ALIASES)") from None
 
 
 def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: list[str],

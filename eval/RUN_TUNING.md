@@ -19,17 +19,22 @@ uv pip install -r eval/requirements.txt   # mir_eval, jiwer, optuna
   curl -LO https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-small-onnx.zip
   unzip GAME-1.0.3-small-onnx.zip && rm GAME-1.0.3-small-onnx.zip && cd -
   ```
-- **Data** (private, never in git): unpack `ultrasinger_eval_windows.tar` outside the repo and link it in, so the
-  paths in the specs (`eval_singstar/bench`, `eval_singstar/selection`) work unchanged:
+- **Data** (private, never in git): the collection stays where it is; a data folder next to the repo
+  holds a link to it and the generated windows, and the repo links to that folder:
   ```bash
-  mkdir -p ../data && tar -xf ultrasinger_eval_windows.tar -C ../data
-  ln -s "$(realpath ../data/eval_singstar)" eval_singstar     # gitignored (folder or link)
+  mkdir -p ../data/eval_singstar
+  ln -s /home/mo/songs ../data/eval_singstar/raw               # <edition>/<song>/ as Syncer writes it
+  ln -s "$(realpath ../data/eval_singstar)" eval_singstar      # gitignored (folder or link)
+  uv run python eval/splits/make_tuning_sets.py --check        # every train song found?
+  uv run python eval/splits/make_tuning_sets.py                # ~200 windows: tune_train + tune_holdout (~1 min)
   ```
+  (The quick bench and selection windows from `ultrasinger_eval_windows.tar` are only needed for
+  `tune/staged_singstar.yaml`, the small 12-song spec.)
 
 ## 2. Preflight
 
 ```bash
-uv run python eval/preflight.py tune/staged_singstar.yaml
+uv run python eval/preflight.py tune/staged_singstar_full.yaml
 ```
 
 - It checks packages, ffmpeg, GPU, the spec (every search value builds a valid pipeline), the data, the GAME model and
@@ -40,26 +45,26 @@ uv run python eval/preflight.py tune/staged_singstar.yaml
 ## 3. Run
 
 ```bash
-nohup uv run python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1 &     # Linux/macOS
-# Windows: run  python eval/tune.py tune/staged_singstar.yaml > tune_run.log 2>&1  in a terminal you leave open
+nohup uv run python eval/tune.py tune/staged_singstar_full.yaml > tune_run.log 2>&1 &     # Linux/macOS
+# Windows: run  uv run python eval/tune.py tune/staged_singstar_full.yaml > tune_run.log 2>&1  in a terminal you leave open
 ```
 
 - **Device:** picked automatically (CUDA if available); the first log line says which.
-- **Warm-up:** without runtime records on this machine, the tuner first runs the base pipeline on the 12 songs. The
+- **Warm-up:** without runtime records on this machine, the tuner first runs the base pipeline on every tuning song. The
   timings decide which parameters are cheap to search.
-- **Groups:** 19, early stages first. Each writes `tune/out/staged_singstar/report.md`, `preset.yaml` and `trials.csv`
+- **Groups:** 19, early stages first. Each writes `tune/out/staged_singstar_full/report.md`, `preset.yaml` and `trials.csv`
   as it finishes.
 - **Holdout:** at the end, the selection set (36 windows) is scored once with the start and the tuned configuration.
 
 **If it stops**, look at the last `=== N. <group>` line in the log and resume there (report and trials are appended):
 
 ```bash
-nohup uv run python eval/tune.py tune/staged_singstar.yaml --from-group N >> tune_run.log 2>&1 &
+nohup uv run python eval/tune.py tune/staged_singstar_full.yaml --from-group N >> tune_run.log 2>&1 &
 ```
 
 ## 4. Send back
 
-`tune/out/staged_singstar/report.md`, `trials.csv`, `preset.yaml` and `tune_run.log`.
+`tune/out/staged_singstar_full/report.md`, `trials.csv`, `preset.yaml` and `tune_run.log`.
 
 Notes:
 - The noise thresholds in `tune/noise.yaml` were measured on CPU. On GPU (Whisper in float16) the chaos is
