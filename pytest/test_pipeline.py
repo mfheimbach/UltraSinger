@@ -16,7 +16,7 @@ os.environ["ULTRASINGER_RUNTIME_LOG"] = os.path.join(tempfile.gettempdir(), "ult
 
 from pipeline import stages  # noqa: F401  (registers stages)
 from pipeline import contracts
-from pipeline.core import Context, Pipeline, Stage, StepSpec, load_preset, stage
+from pipeline.core import Context, Pipeline, Stage, StepSpec, load_preset, resolve_preset, stage
 from pipeline.run import INITIAL, preset_path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -66,8 +66,31 @@ def test_presets_validate():
 
 
 def test_validation_reports_missing_inputs():
-    p = Pipeline([StepSpec(use="notes.calibrate")])
+    p = Pipeline([StepSpec(use="notes.calibrate")], params=resolve_preset(preset_path("best"))["params"])
     assert p.validate({"audio.mix"})
+
+
+def test_every_stage_value_lives_in_best():
+    import dataclasses
+    from pipeline.core import REGISTRY
+    table = resolve_preset(preset_path("best"))["params"]
+    for name, cls in REGISTRY.items():
+        if name.startswith("test."):
+            continue
+        fields = {f.name for f in dataclasses.fields(cls.Params)}
+        assert set(table.get(name, {})) == fields, name
+        assert all(f.default is dataclasses.MISSING for f in dataclasses.fields(cls.Params)), name
+    with pytest.raises(ValueError):
+        Pipeline([StepSpec(use="notes.calibrate")])  # no values -> loud failure
+
+
+def test_inheritance_and_sources():
+    p = load_preset(preset_path("cpu_fullsong"), ["notes.calibrate.offset=-0.05"])
+    cfg = {row["step"]: row for row in p.effective_config()}
+    assert cfg["separate"]["params"]["model"] == "htdemucs" and cfg["separate"]["sources"]["model"] == "cpu_fullsong"
+    assert cfg["separate"]["sources"]["seed"] == "best"
+    assert cfg["notes.calibrate"]["params"]["offset"] == -0.05
+    assert cfg["notes.calibrate"]["sources"]["offset"] == "override"
 
 
 def test_text_stages_reorder_and_cache():
@@ -146,7 +169,7 @@ def test_golden_tail(monkeypatch):
              "media": MediaInfo(artist="Golden", title="Fixture", audio_extension="wav")}
     with tempfile.TemporaryDirectory() as tmp:
         ctx = Context(cache_dir=tmp, output_dir=tmp, basename="Golden - Fixture", verbose=False)
-        out = Pipeline(steps).run(ctx, store)
+        out = Pipeline(steps, params=resolve_preset(preset_path("best"))["params"]).run(ctx, store)
         with open(out["file.txt"], encoding="utf-8") as f:
             body = [line for line in f.read().splitlines() if not line.startswith(("#VERSION", "#CREATOR", "#COMMENT"))]
     if os.environ.get("UPDATE_GOLDEN"):

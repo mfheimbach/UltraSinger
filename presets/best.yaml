@@ -1,13 +1,50 @@
-# Best configuration (old workbench 0.736, full songs 0.771 with the CPU proxy; SingStar bench: see eval).
+# The single place for every value of every stage, and the best known step order.
+# Other presets inherit from it (base: best) and only state their differences.
+# Stage classes (src/pipeline/stages.py) declare names, types and meaning; no values.
 name: best
+
+params:
+  separate: {model: htdemucs_ft, separator_model: null, seed: 0}
+  prepare: {denoise: true, denoise_reduction_db: 70, denoise_floor_db: -80,
+            mute_silence: true, silence_threshold_db: -50, min_silence_ms: 50}
+  tempo: {scale: 1.0}
+  key: {}
+  transcribe.whisper: {model: large-v3-turbo, batch_size: 4, compute_type: null, align_model: null,
+                       language: null, keep_numbers: false}
+  transcribe.qwen3: {model: Qwen/Qwen3-ASR-1.7B, aligner: Qwen/Qwen3-ForcedAligner-0.6B, language: null}
+  words.align_text: {language: null, align_model: null}
+  lyrics.lrclib: {max_duration_diff: 15.0}
+  words.correct_lyrics: {min_match: 0.4, max_length_ratio: 2.0}
+  words.strip_punctuation: {}
+  syllables.hyphenate: {enabled: true}
+  syllables.silence_split: {silence_threshold_db: -50, min_silence_ms: 50}
+  syllables.from_chart: {language: null}
+  pitch.rmvpe: {}
+  pitch.swiftf0: {}
+  segment.game: {model_dir: ~/.cache/game/GAME-1.0.3-small-onnx, boundary_threshold: 0.2, steps: 8,
+                 chunk_seconds: 30.0, radius: 2, presence_threshold: 0.2, seed: 0}
+  segment.contour: {min_duration: 0.08, smooth_frames: 5, conf_threshold: 0.4, tuning_correction: true}
+  segment.grid: {}
+  notes.from_pitch: {method: chroma_mode, conf_threshold: 0.4, edge_trim: 0.0, tuning_correction: true,
+                     quantize_to_key: true, key_min_offset: 0.1}
+  notes.game_pitch: {quantize_to_key: true, key_min_offset: 0.1}
+  notes.merge: {slides: false, slide_max_semitones: 2, same_pitch_syllables: true}
+  notes.snap_edges: {max_shift: 0.5, conf: 0.1, min_gap: 0.03, min_len: 0.05}
+  notes.calibrate: {offset: -0.07, end_extension: 0.06}
+  notes.line_breaks: {model: oliverguhr/fullstop-punctuation-multilingual-base,
+                      intercept: 1.355, w_pause: 0.688, w_punct: 0.248,
+                      chars_mean: 23.0, chars_sd: 9.0, chars_max: 45, dur_median: 1.9, dur_log_sd: 0.57,
+                      prior_weight: 1.0, max_words: 16}
+  write.ultrastar: {format_version: "1.2.0", stems: true}
+  write.midi: {}
+  write.conventions: {touching_notes: false, line_breaks: true, apostrophes: true, capitalise: true}
+
 steps:
   - use: separate
-    params: {model: htdemucs_ft}
   - use: prepare
   - use: tempo
   - use: key
   - use: transcribe.whisper
-    params: {model: large-v3-turbo, batch_size: 4}
   - use: lyrics.lrclib
   - use: words.correct_lyrics
   - use: words.strip_punctuation

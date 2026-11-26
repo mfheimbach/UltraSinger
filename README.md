@@ -100,6 +100,7 @@ Options:
   -q, --quiet        console: warnings and errors only
   --debug            console: everything live (library output, progress bars)
   --list             list all stages and their parameters
+  --show-config      every step and parameter value with its source, and exit
   --check            validate the preset (with your --set changes) and exit
   --where STEP       show every position where STEP could run, and exit
   --estimate         estimated runtime for the input, from earlier runs on this machine, and exit
@@ -107,8 +108,10 @@ Options:
 
 ### Presets and stages
 
-Every processing decision lives in a preset (`presets/*.yaml`): an ordered list of stages with their
-parameters. `--list` shows every stage, what it reads and writes, and its parameters.
+Every value lives in one place, `presets/best.yaml`: a `params` table with every parameter of every
+stage, and the step order. Other presets inherit from it (`base: best`) and state only their
+differences. `--list` shows every stage, what it reads and writes, and its parameters;
+`--show-config` prints the effective value of every parameter and where it came from.
 
 | preset | what it is |
 |---|---|

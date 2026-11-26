@@ -50,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("-q", "--quiet", action="store_true", help="console: warnings and errors only")
     ap.add_argument("--debug", action="store_true", help="console: everything, live (library output, progress bars)")
     ap.add_argument("--list", action="store_true", help="list stages and parameters")
+    ap.add_argument("--show-config", action="store_true",
+                    help="print every step and parameter value with its source (preset or override), and exit")
     ap.add_argument("--check", action="store_true", help="validate the preset (with --set) and exit")
     ap.add_argument("--where", metavar="STEP", help="show every position where STEP could run, and exit")
     ap.add_argument("--estimate", action="store_true",
@@ -58,26 +60,21 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def resolve_preset(args) -> dict:
-    """Preset as a dict, with the CLI shortcuts applied."""
-    import yaml
+def preset_and_overrides(args) -> tuple[str, list[str]]:
+    """Preset name and the overrides: CLI shortcuts first, then --set (applied in that order)."""
+    from pipeline.core import load_preset
     from pipeline.run import preset_path
     name = args.preset or ("repitch" if (args.input or "").lower().endswith(".txt") else "best")
-    with open(preset_path(name), encoding="utf-8") as f:
-        preset = yaml.safe_load(f)
-    steps = preset["steps"]
-    uses = [s["use"] for s in steps]
+    ids = {st.id for st in load_preset(preset_path(name)).stages}
+    extra = []
     if args.language:
-        for s in steps:
-            if s["use"] in ("transcribe.whisper", "transcribe.qwen3", "words.align_text"):
-                s.setdefault("params", {})["language"] = args.language
-    if args.no_stems:
-        for s in steps:
-            if s["use"] == "write.ultrastar":
-                s.setdefault("params", {})["stems"] = False
-    if args.midi and "write.midi" not in uses:
-        steps.append({"use": "write.midi"})
-    return preset
+        extra += [f"{s}.language={args.language}" for s in ("transcribe.whisper", "transcribe.qwen3",
+                                                             "words.align_text") if s in ids]
+    if args.no_stems and "write.ultrastar" in ids:
+        extra.append("write.ultrastar.stems=false")
+    if args.midi and "write.midi" not in ids:
+        extra.append("+write.midi")
+    return name, extra + list(args.set)
 
 
 def check_ffmpeg(user_path: str) -> None:
@@ -104,15 +101,20 @@ def main(argv: list[str] | None = None) -> int:
     from pipeline.run import run_pipeline
     plog.setup(verbose=not args.quiet, debug=args.debug)
 
+    from pipeline.core import resolve_preset
+    from pipeline.run import preset_path
     if args.list:
-        print(describe())
+        print(describe(resolve_preset(preset_path("best"))["params"]))
         return 0
-    preset = resolve_preset(args)
     try:
-        pipeline = load_preset(preset, args.set)
+        preset, overrides = preset_and_overrides(args)
+        pipeline = load_preset(preset_path(preset), overrides)
     except (ValueError, KeyError) as err:
         log.error(str(err))
         return 1
+    if args.show_config:
+        print(pipeline.show_config())
+        return 0
     initial_guess = {"audio.mix", "media"} | ({"chart"} if (args.input or "").lower().endswith(".txt") else set())
     if args.where:
         print(pipeline.describe_positions(args.where, initial_guess))
@@ -138,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'total':28s} {total:7.1f}s  for {secs:.0f} s of audio")
         return 0
 
-    log.info(f"UltraSinger-ng {APP_VERSION} - preset '{preset.get('name')}'")
+    log.info(f"UltraSinger-ng {APP_VERSION} - preset '{pipeline.name}'")
     check_ffmpeg(args.ffmpeg)
     device = pick_device(args.cpu)
 
@@ -156,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     cache_dir = args.cache or os.path.join(song.song_dir, "cache")
-    store = run_pipeline(song, preset, args.set, cache_dir, device, verbose=not args.quiet, debug=args.debug,
+    store = run_pipeline(song, preset, overrides, cache_dir, device, verbose=not args.quiet, debug=args.debug,
                          fresh=tuple(args.fresh))
     if not args.cache and not args.keep_cache:
         shutil.rmtree(cache_dir, ignore_errors=True)

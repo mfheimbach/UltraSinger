@@ -20,7 +20,6 @@ from modules.console_colors import blue_highlighted
 
 log = logging.getLogger("ultrasinger.game_segmenter")
 
-MAX_CHUNK_SECONDS = 30.0  # default; attention cost grows with length, long audio is split at syllable gaps
 
 
 class GameModel:
@@ -51,8 +50,7 @@ class GameModel:
         return int(langs.get((code or "").lower(), 0))
 
     def run(self, wave: np.ndarray, regions: list[float], language: int,
-            boundary_threshold: float = 0.2, radius: int = 2, steps: int = 8,
-            presence_threshold: float = 0.2):
+            boundary_threshold: float, radius: int, steps: int, presence_threshold: float):
         """wave: mono at self.sr; regions: known region durations (s) covering the audio.
         Returns note durations (s), presence flags, pitches (MIDI float)."""
         duration = np.array([len(wave) / self.sr], dtype=np.float32)
@@ -74,7 +72,7 @@ class GameModel:
         return durs[0][:n], presence[0][:n], scores[0][:n]
 
 
-def _chunks(syllables, total: float, max_seconds: float = MAX_CHUNK_SECONDS):
+def _chunks(syllables, total: float, max_seconds: float):
     """Group syllables into chunks of about max_seconds, cut in the middle of gaps (0 = no chunking)."""
     if max_seconds <= 0:
         return [(0.0, total, list(syllables))]
@@ -90,8 +88,8 @@ def _chunks(syllables, total: float, max_seconds: float = MAX_CHUNK_SECONDS):
 
 
 def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, model_dir: str,
-                            device: str = "cpu", boundary_threshold: float = 0.2, steps: int = 8,
-                            chunk_seconds: float = MAX_CHUNK_SECONDS, seed: int = 0):
+                            device: str, boundary_threshold: float, steps: int, chunk_seconds: float,
+                            seed: int, radius: int, presence_threshold: float):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
     log.info(f"Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
     model = GameModel(model_dir, device, seed)
@@ -126,7 +124,7 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
             regions.append(c1 - cursor)
         if not edges:
             continue
-        durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, steps=steps)
+        durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps, presence_threshold)
         t = c0
         notes = []
         for d, p, sc in zip(durs, presence, scores):

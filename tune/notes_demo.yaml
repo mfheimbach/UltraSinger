@@ -1,0 +1,16 @@
+# Demo / smoke test: the note-level parameters on the quick bench (cheap: seconds per trial).
+name: notes_demo
+base: bench
+data:
+  train: eval_singstar/bench
+  folds: 3
+  gt_language: true
+objective: {usdx_medium: 1.0}
+search:
+  notes.calibrate.offset: {low: -0.15, high: 0.0}
+  notes.calibrate.end_extension: {low: 0.0, high: 0.15}
+  notes.snap_edges.max_shift: {low: 0.0, high: 0.8}
+  notes.snap_edges.conf: {low: 0.02, high: 0.4}
+  notes.game_pitch.key_min_offset: {low: 0.0, high: 0.3}
+  notes.merge.same_pitch_syllables: [true, false]
+trials: 30

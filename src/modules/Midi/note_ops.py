@@ -9,7 +9,7 @@ from modules.Pitcher.pitched_data import PitchedData
 from modules.Speech_Recognition.TranscribedData import TranscribedData
 
 
-def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offset: float = 0.1):
+def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offset: float):
     from modules.Audio.key_detector import quantize_note_to_key
     if len(midi_segments) != len(game_pitches):
         import logging
@@ -25,7 +25,7 @@ def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offse
 
 
 def snap_note_edges(midi_segments: list[MidiSegment], pitched_data: PitchedData, max_shift: float,
-                    conf_threshold: float, min_gap: float = 0.03, min_len: float = 0.05) -> None:
+                    conf_threshold: float, min_gap: float, min_len: float) -> None:
     """Move note starts/ends that border a pause onto the voicing on/offset (within max_shift).
     Edges between touching notes are pitch changes and stay where they are."""
     times = np.asarray(pitched_data.times)
@@ -79,8 +79,8 @@ def apply_timing_calibration(midi_segments: list[MidiSegment], offset: float, en
 
 def merge_syllable_segments(midi_segments: list[MidiSegment],
                             transcribed_data: list[TranscribedData],
-                            real_bpm: float, slides: bool = False,
-                            same_pitch_syllables: bool = True) -> tuple[list[MidiSegment], list[TranscribedData]]:
+                            real_bpm: float, slides: bool, same_pitch_syllables: bool,
+                            slide_max_semitones: int) -> tuple[list[MidiSegment], list[TranscribedData]]:
     """Merge sub-segments of a syllable where the pitch is the same
 
     This function handles three cases:
@@ -124,7 +124,7 @@ def merge_syllable_segments(midi_segments: list[MidiSegment],
                 # Slide: Short duration AND small pitch jump (1-2 semitones)
                 is_potential_slide = (slides and
                                      duration <= max_slide_duration and
-                                     semitone_diff <= 2 and
+                                     semitone_diff <= slide_max_semitones and
                                      semitone_diff > 0)
             except:
                 # Ignore slide detection on error

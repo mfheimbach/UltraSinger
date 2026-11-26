@@ -24,7 +24,20 @@
 - Strict contracts: `ULTRASINGER_STRICT=1` turns contract warnings into errors.
 
 ## Baseline (quick bench, preset `bench`, 2026-11-25)
-usdx_medium 0.609, usdx_hard 0.444, WER 0.358, line F1 0.463.
+usdx_medium 0.609, usdx_hard 0.444, WER 0.358, line F1 0.463. Noise floor: demucs seeds alone move
+the bench mean by ~0.02 (0.609 / 0.622 / 0.648); compare configs on the same seed, decide on
+bigger sets.
+
+## Tuning (`eval/tune.py`, specs in `tune/`)
+- A spec names base preset, data (train / optional holdout / folds), objective (weighted metrics) and
+  the search space: parameter ranges, discrete values, module alternatives (`step.use`), step order
+  (`step.after`). Cheap dimensions (from the runtime records) run as in-memory tails (~0.5 s per trial
+  on the bench); expensive ones (separation, Whisper) are discrete choices computed on demand.
+- Reports artist-grouped CV gain with CI, the in-sample tuned config, fANOVA importance, holdout once.
+  Output: `tune/out/<name>/report.md`, `preset.yaml` (base + overrides), `trials.csv`.
+- `tune/notes_demo.yaml`: note parameters on the bench, CV gain +0.005 (CI -0.007..+0.015): the
+  current values are near optimal for usdx_medium alone; end_extension wants to grow (metric gaming,
+  add voicing precision to the objective).
 
 ## Tools
 - `splits/`: SingStar split and quick bench (frozen; don't re-roll for nicer scores)

@@ -1,9 +1,9 @@
 # Re-pitch an existing chart: its syllables and timing stay, only the pitches are detected.
 # Input: an UltraStar txt (the CLI passes it as the 'chart' artifact). Eval: pitch-only scoring.
 name: repitch
+base: best
 steps:
   - use: separate
-    params: {model: htdemucs_ft}
   - use: prepare
   - use: key
   - use: syllables.from_chart

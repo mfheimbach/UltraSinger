@@ -10,7 +10,7 @@ from modules.os_helper import check_file_exists
 log = logging.getLogger("ultrasinger.denoise")
 
 
-def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
+def __ffmpeg_reduce_noise(input_file_path: str, output_file: str, reduction_db: float, floor_db: float) -> None:
     """Reduce noise from vocal audio with ffmpeg."""
 
     # Denoise audio samples with FFT.
@@ -29,7 +29,7 @@ def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
     try:
         (
             ffmpeg.input(input_file_path)
-            .output(output_file, af="afftdn=nr=70:nf=-80:tn=1")
+            .output(output_file, af=f"afftdn=nr={reduction_db:g}:nf={floor_db:g}:tn=1")
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True)
         )
@@ -39,10 +39,11 @@ def __ffmpeg_reduce_noise(input_file_path: str, output_file: str) -> None:
         raise ffmpeg_exception
 
 
-def denoise_vocal_audio(input_path: str, output_path: str, skip_cache: bool = False) -> None:
-    """Denoise vocal audio"""
+def denoise_vocal_audio(input_path: str, output_path: str, reduction_db: float, floor_db: float,
+                        skip_cache: bool = False) -> None:
+    """Denoise vocal audio (ffmpeg afftdn). The output path must identify input and settings."""
     cache_available = check_file_exists(output_path)
     if skip_cache or not cache_available:
-        __ffmpeg_reduce_noise(input_path, output_path)
+        __ffmpeg_reduce_noise(input_path, output_path, reduction_db, floor_db)
     else:
         log.info(f"{green_highlighted('cache')} reusing cached denoised audio")

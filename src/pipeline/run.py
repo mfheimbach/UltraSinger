@@ -58,6 +58,7 @@ def run_pipeline(song, preset, overrides: list[str] | None = None, cache_dir: st
         json.dump({"created": time.strftime("%Y-%m-%d %H:%M:%S"), "code": _git_version(),
                    "preset": pipeline.name, "overrides": list(overrides or []),
                    "steps": [st.id for st in pipeline.stages],
+                   "config": pipeline.effective_config(),
                    "chain": store["_lineage"].get("file.txt", [])}, f, indent=1, default=str)
     return store
 
@@ -132,7 +133,8 @@ def main(argv=None):
     ap.add_argument("--check", metavar="PRESET")
     args = ap.parse_args(argv)
     if args.list:
-        print(describe())
+        from pipeline.core import resolve_preset
+        print(describe(resolve_preset(preset_path("best"))["params"]))
         return
     if args.check:
         problems = load_preset(preset_path(args.check), args.set).validate(INITIAL)

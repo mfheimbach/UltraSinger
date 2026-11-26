@@ -50,16 +50,15 @@ def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: li
                mode: str = "full", gt_path: str | None = None, oracle_lyrics: bool = False,
                fresh: tuple[str, ...] = ()) -> str:
     """Run a preset on the chart's audio. Returns the written txt (also recorded in run_info.json)."""
-    import yaml
+    from pipeline.core import load_preset
     from pipeline.run import preset_path, run_song
 
     if mode == "repitch":
         preset = "repitch"
     if oracle_lyrics:
         preset = "oracle_lyrics"
-    with open(preset_path(preset), encoding="utf-8") as f:
-        spec = yaml.safe_load(f)
-    steps = {s.get("id") or s["use"] for s in spec["steps"]}
+    spec = preset_path(preset)
+    steps = {st.id for st in load_preset(spec).stages}
     overrides = [o for o in overrides if o != "gt_language=true"]
     if gt_language or oracle_lyrics:
         code = language_code(gt.language)
@@ -76,7 +75,7 @@ def run_preset(gt: "usdx.Song", out: str, cache: str, preset: str, overrides: li
     with open(os.path.join(out, "store.pkl"), "wb") as f:
         pickle.dump(keep, f)
     with open(os.path.join(out, "run_info.json"), "w", encoding="utf-8") as f:
-        json.dump({"txt": os.path.abspath(txt), "mode": mode, "preset": spec.get("name"),
+        json.dump({"txt": os.path.abspath(txt), "mode": mode, "preset": preset,
                    "overrides": overrides}, f, indent=2)
     return txt
 

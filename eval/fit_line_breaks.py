@@ -1,4 +1,4 @@
-"""Fit the line-break model in src/modules/Ultrastar/line_breaks.py.
+"""Fit the line-break model (notes.line_breaks params in presets/best.yaml).
 
 Uses finished eval runs (our predicted charts) and the ground-truth charts: every pause
 between two predicted words is a sample, labelled 1 if a chart line starts there (nearest
@@ -9,6 +9,7 @@ Reports leave-one-song-out line F1 of the full planner and the final coefficient
 """
 
 import argparse
+import dataclasses
 import glob
 import math
 import os
@@ -64,7 +65,7 @@ def main():
     for name, gt, pred in songs:
         segs = segments_from_chart(pred)
         words = lb._words(segs)
-        p = np.clip(lb.punctuation_probabilities([w[4] for w in words], lb_model), 1e-3, 1 - 1e-3)
+        p = np.clip(lb.punctuation_probabilities([w[4] for w in words], preset_params()["model"]), 1e-3, 1 - 1e-3)
         x, y = [], np.zeros(len(words) - 1)
         for i in range(1, len(words)):
             pause = max(0.0, words[i][2] - words[i - 1][3])
@@ -81,11 +82,12 @@ def main():
         X = np.vstack([data[s][2] for s in data if s != name])
         Y = np.concatenate([data[s][3] for s in data if s != name])
         m = LogisticRegression(max_iter=1000).fit(X, Y)
-        lb.INTERCEPT, lb.W_PAUSE, lb.W_PUNCT = m.intercept_[0], *m.coef_[0]
+        model = dataclasses.replace(preset_model(), intercept=m.intercept_[0], w_pause=m.coef_[0][0],
+                                    w_punct=m.coef_[0][1])
         gt, pred, _, _ = data[name]
         segs = segments_from_chart(pred)
         lb.punctuation_probabilities = cached(data[name][2])
-        lb.plan_line_breaks(segs, lb_model)
+        lb.plan_line_breaks(segs, preset_params()["model"], "cpu", model)
         lb.punctuation_probabilities = original_pp
         planned = usdx.Song(path="", notes=[usdx.Note(kind=":", start=s.start, end=s.end, pitch=0, text=s.word,
                                                        line_start=s.line_start) for s in segs])
@@ -97,10 +99,22 @@ def main():
     X = np.vstack([v[2] for v in data.values()])
     Y = np.concatenate([v[3] for v in data.values()])
     m = LogisticRegression(max_iter=1000).fit(X, Y)
-    print(f"INTERCEPT, W_PAUSE, W_PUNCT = {m.intercept_[0]:.3f}, {m.coef_[0][0]:.3f}, {m.coef_[0][1]:.3f}")
+    print("notes.line_breaks params for presets/best.yaml (the intercept was then raised by 1.0 so line "
+          "counts match the charts):")
+    print(f"  intercept: {m.intercept_[0]:.3f}, w_pause: {m.coef_[0][0]:.3f}, w_punct: {m.coef_[0][1]:.3f}")
 
 
-lb_model = "oliverguhr/fullstop-punctuation-multilingual-base"
+def preset_params() -> dict:
+    from pipeline.core import resolve_preset
+    return resolve_preset(os.path.join(os.path.dirname(HERE), "presets", "best.yaml"))["params"]["notes.line_breaks"]
+
+
+def preset_model() -> "lb.LineBreakModel":
+    p = dict(preset_params())
+    p.pop("model")
+    return lb.LineBreakModel(**p)
+
+
 original_pp = lb.punctuation_probabilities
 
 

@@ -1,24 +1,5 @@
-# Frozen workbench preset: best config without the LRCLIB lookup (windows don't match song durations).
-# Language comes from the chart (eval option), since 20 s windows break Whisper's language detection.
+# Frozen workbench preset: best without the LRCLIB lookup (windows don't match song durations)
+# and without planned line breaks. Language comes from the chart (eval option --gt-language).
 name: bench
-steps:
-  - use: separate
-    params: {model: htdemucs_ft}
-  - use: prepare
-  - use: tempo
-  - use: key
-  - use: transcribe.whisper
-    params: {model: large-v3-turbo, batch_size: 4}
-  - use: words.strip_punctuation
-  - use: syllables.hyphenate
-  - use: syllables.silence_split
-  - use: pitch.rmvpe
-  - use: segment.game
-  - use: notes.from_pitch
-  - use: notes.game_pitch
-  - use: notes.merge
-  - use: notes.snap_edges
-  - use: notes.calibrate
-  - use: write.ultrastar
-    params: {stems: false}
-  - use: write.conventions
+base: best
+overrides: [-lyrics.lrclib, -words.correct_lyrics, -notes.line_breaks, write.ultrastar.stems=false]

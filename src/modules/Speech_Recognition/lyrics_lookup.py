@@ -36,7 +36,7 @@ def _clean(text: str) -> str:
     return re.sub(r"\s*[\(\[].*?[\)\]]", "", text or "").strip()
 
 
-def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float = 15.0) -> list[dict]:
+def fetch_lyrics(artist: str, title: str, duration: float, max_duration_diff: float) -> list[dict]:
     """Candidate lyrics (closest duration first) as {"plain": text, "synced": LRC text or None}."""
     for a, t in ((artist, title), (_clean(artist), _clean(title))):
         if not t:
@@ -60,7 +60,7 @@ def _norm(word: str) -> str:
     return re.sub(r"[^\w']", "", w).strip("'")
 
 
-def correct_words(transcribed, lyrics_text: str, min_match: float = 0.4):
+def correct_words(transcribed, lyrics_text: str, min_match: float, max_length_ratio: float):
     """Replace mis-heard words with the reference lyrics, keeping the transcribed timing.
     Returns (corrected list, match share) or (None, share) if the lyrics don't fit."""
     ref = [w for w in re.split(r"\s+", lyrics_text) if _norm(w)]
@@ -82,7 +82,7 @@ def correct_words(transcribed, lyrics_text: str, min_match: float = 0.4):
                 t = copy.deepcopy(hyp[i1 + k])
                 t.word = ref[j1 + k] + " "
                 out.append(t)
-        elif tag == "replace" and (j2 - j1 > 2 * (i2 - i1) + 1 or i2 - i1 > 2 * (j2 - j1) + 1):
+        elif tag == "replace" and (j2 - j1 > max_length_ratio * (i2 - i1) + 1 or i2 - i1 > max_length_ratio * (j2 - j1) + 1):
             # very different lengths: usually backing vocals/repeats this version doesn't have
             out.extend(copy.deepcopy(hyp[i1:i2]))
         elif tag == "replace":

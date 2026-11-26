@@ -10,21 +10,19 @@ from modules.Speech_Recognition.TranscribedData import TranscribedData
 
 log = logging.getLogger("ultrasinger.silence_processing")
 
-def remove_silence_from_transcription_data(audio_path: str, transcribed_data: list[TranscribedData]) -> list[
-    TranscribedData]:
+def remove_silence_from_transcription_data(audio_path: str, transcribed_data: list[TranscribedData],
+                                           min_silence_ms: int, silence_threshold_db: float) -> list[TranscribedData]:
     """Remove silence from given transcription data"""
 
     log.info("Removing silent parts from transcription data"
     )
 
-    silence_timestamps = get_silence_sections(audio_path)
+    silence_timestamps = get_silence_sections(audio_path, min_silence_ms, silence_threshold_db)
     data = remove_silence(silence_timestamps, transcribed_data)
     return data
 
 
-def get_silence_sections(audio_path: str,
-                         min_silence_len=50,
-                         silence_thresh=-50) -> list[tuple[float, float]]:
+def get_silence_sections(audio_path: str, min_silence_len: int, silence_thresh: float) -> list[tuple[float, float]]:
     y = AudioSegment.from_wav(audio_path)
     s = silence.detect_silence(y, min_silence_len=min_silence_len, silence_thresh=silence_thresh)
     s = [((start / 1000), (stop / 1000)) for start, stop in s]  # convert to sec
@@ -127,10 +125,10 @@ def remove_silence(silence_parts_list: list[tuple[float, float]], transcribed_da
     return new_transcribed_data
 
 
-def mute_no_singing_parts(mono_output_path, mute_output_path):
+def mute_no_singing_parts(mono_output_path, mute_output_path, min_silence_ms: int, silence_threshold_db: float):
     log.info("Mute audio parts with no singing"
     )
-    silence_sections = get_silence_sections(mono_output_path)
+    silence_sections = get_silence_sections(mono_output_path, min_silence_ms, silence_threshold_db)
     y, sr = librosa.load(mono_output_path, sr=None)
     # Mute the parts of the audio with no singing
     for i in silence_sections:

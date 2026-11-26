@@ -17,6 +17,7 @@ import logging
 
 import math
 import re
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -25,14 +26,21 @@ from modules.console_colors import blue_highlighted
 
 log = logging.getLogger("ultrasinger.line_breaks")
 
-# logistic model: log-odds(break) = INTERCEPT + W_PAUSE * log(pause + 0.02) + W_PUNCT * logit(p_punct)
-# intercept raised by 1.0 after fitting so line counts match the charts (fitted: 0.355)
-INTERCEPT, W_PAUSE, W_PUNCT = 1.355, 0.688, 0.248
-# line length prior (from charts)
-CHARS_MEAN, CHARS_SD, CHARS_MAX = 23.0, 9.0, 45
-DUR_MEDIAN, DUR_LOG_SD = 1.9, 0.57
-PRIOR_WEIGHT = 1.0
-MAX_WORDS = 16
+@dataclass
+class LineBreakModel:
+    """log-odds(break) = intercept + w_pause * log(pause + 0.02) + w_punct * logit(p_punct), plus a
+    prior on line length (characters: normal; duration: log-normal) from the charts. Values come
+    from the preset (fitted with eval/fit_line_breaks.py)."""
+    intercept: float
+    w_pause: float
+    w_punct: float
+    chars_mean: float
+    chars_sd: float
+    chars_max: int
+    dur_median: float
+    dur_log_sd: float
+    prior_weight: float
+    max_words: int
 
 
 def _words(midi_segments: list[MidiSegment]) -> list[tuple[int, int, float, float, str]]:
@@ -76,7 +84,7 @@ def punctuation_probabilities(words: list[str], model_name: str, device: str = "
     return out
 
 
-def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: str = "cpu",
+def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: str, m: LineBreakModel,
                      bonus_starts: set[int] | None = None, bonus: float = 0.0) -> None:
     """Set line_start on the first note of each planned line. bonus_starts: segment indices that
     get an extra break score (e.g. LRCLIB line starts)."""
@@ -89,7 +97,7 @@ def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: 
     score = [0.0] * n
     for i in range(1, n):
         pause = max(0.0, words[i][2] - words[i - 1][3])
-        score[i] = INTERCEPT + W_PAUSE * math.log(pause + 0.02) + W_PUNCT * math.log(p[i - 1] / (1 - p[i - 1]))
+        score[i] = m.intercept + m.w_pause * math.log(pause + 0.02) + m.w_punct * math.log(p[i - 1] / (1 - p[i - 1]))
         if bonus_starts and words[i][0] in bonus_starts:
             score[i] += bonus
     chars = [0]
@@ -98,13 +106,13 @@ def plan_line_breaks(midi_segments: list[MidiSegment], model_name: str, device: 
     best, back = [-math.inf] * (n + 1), [0] * (n + 1)
     best[0] = 0.0
     for b in range(1, n + 1):  # a line covers words a..b-1
-        for a in range(max(0, b - MAX_WORDS), b):
+        for a in range(max(0, b - m.max_words), b):
             c = chars[b] - chars[a] + (b - 1 - a)
-            if c > CHARS_MAX and b - 1 > a:
+            if c > m.chars_max and b - 1 > a:
                 continue
             dur = max(0.05, words[b - 1][3] - words[a][2])
-            prior = -0.5 * ((c - CHARS_MEAN) / CHARS_SD) ** 2 - 0.5 * ((math.log(dur) - math.log(DUR_MEDIAN)) / DUR_LOG_SD) ** 2
-            s = best[a] + PRIOR_WEIGHT * prior + (score[a] if a > 0 else 0.0)
+            prior = -0.5 * ((c - m.chars_mean) / m.chars_sd) ** 2 - 0.5 * ((math.log(dur) - math.log(m.dur_median)) / m.dur_log_sd) ** 2
+            s = best[a] + m.prior_weight * prior + (score[a] if a > 0 else 0.0)
             if s > best[b]:
                 best[b], back[b] = s, a
     for seg in midi_segments:

@@ -218,6 +218,12 @@ class Stage:
         unknown = set(params or {}) - fields
         if unknown:
             raise ValueError(f"{self.id}: unknown parameter(s) {sorted(unknown)}; known: {sorted(fields)}")
+        missing = sorted(f.name for f in dataclasses.fields(self.Params)
+                         if f.name not in (params or {}) and f.default is dataclasses.MISSING
+                         and f.default_factory is dataclasses.MISSING)
+        if missing:
+            raise ValueError(f"{self.id}: no value for {missing}; every value lives in the preset "
+                             f"(presets/best.yaml, params: {self.name}: ...)")
         self.params = self.Params(**(params or {}))
         # declared specs ("a|b" alternatives, "@slot" = same artifact as that input slot) ...
         self.input_specs = {**self.inputs, **(inputs or {})}
@@ -277,21 +283,44 @@ def stage(cls: type[Stage]) -> type[Stage]:
 class StepSpec:
     use: str
     id: str | None = None
-    params: dict = field(default_factory=dict)
+    params: dict = field(default_factory=dict)     # per-step values (above the preset's params table)
     inputs: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     enabled: bool = True
+    sources: dict = field(default_factory=dict)    # param -> where a per-step value came from
 
 
 class Pipeline:
-    def __init__(self, steps: list[StepSpec], name: str = "pipeline"):
+    def __init__(self, steps: list[StepSpec], name: str = "pipeline", params: dict | None = None,
+                 param_sources: dict | None = None):
+        """params: the preset's table {stage name: {param: value}}; per-step values override it."""
         self.name = name
+        self.params = params or {}
+        self.param_sources = param_sources or {}
         self.specs = [s for s in steps if s.enabled]
         self.stages = []
         for s in self.specs:
             if s.use not in REGISTRY:
                 raise KeyError(f"unknown stage '{s.use}'; registered: {sorted(REGISTRY)}")
-            self.stages.append(REGISTRY[s.use](s.params, s.inputs, s.outputs, id=s.id or s.use))
+            merged = {**self.params.get(s.use, {}), **s.params}
+            self.stages.append(REGISTRY[s.use](merged, s.inputs, s.outputs, id=s.id or s.use))
+
+    def effective_config(self) -> list[dict]:
+        """Every step with every parameter value and where it came from."""
+        out = []
+        for spec, st in zip(self.specs, self.stages):
+            vals = dataclasses.asdict(st.params)
+            src = {k: spec.sources.get(k) or self.param_sources.get(spec.use, {}).get(k, "?") for k in vals}
+            out.append({"step": st.id, "stage": st.name, "params": vals, "sources": src})
+        return out
+
+    def show_config(self) -> str:
+        lines = [f"preset: {self.name}"]
+        for row in self.effective_config():
+            lines.append(f"{row['step']}" + (f"  ({row['stage']})" if row["stage"] != row["step"] else ""))
+            for k, v in row["params"].items():
+                lines.append(f"    {k} = {v!r}    [{row['sources'][k]}]")
+        return "\n".join(lines)
 
     def bind(self, initial) -> None:
         produced = list(initial)
@@ -365,7 +394,10 @@ class Pipeline:
         return "\n".join(lines)
 
     def run(self, ctx: Context, store: dict) -> dict:
-        problems = self.validate(set(store))
+        # production order matters for "a|b" slots (most recent wins); it travels with the store,
+        # so a pipeline continued on an earlier store (a tail run) binds like the full one
+        order = store.setdefault("_produced", [k for k in store if not k.startswith("_")])
+        problems = self.validate(list(order))
         if problems:
             raise ValueError("pipeline does not type-check:\n  " + "\n  ".join(problems))
         os.makedirs(ctx.cache_dir, exist_ok=True)
@@ -385,7 +417,8 @@ class Pipeline:
                         chain.append(step)
             chain.append({"step": st.id, "stage": st.name, "version": st.version,
                           "params": dataclasses.asdict(st.params)})
-            path = os.path.join(ctx.cache_dir, f"stage_{st.name}_{st.cache_key(store, chain if ctx.cache_by == 'lineage' else None)}.pkl") if st.cache else None
+            use_cache = st.cache and not ctx.extra.get("no_cache")
+            path = os.path.join(ctx.cache_dir, f"stage_{st.name}_{st.cache_key(store, chain if ctx.cache_by == 'lineage' else None)}.pkl") if use_cache else None
             if path:
                 _record_lineage(path, chain, self.name)
             from pipeline.log import get as get_logger, stage_scope
@@ -431,8 +464,12 @@ class Pipeline:
                         get_logger(f"stage.{st.id}").warning(msg, extra={"stage": st.id, "event": "contract"})
             for slot, value in result.items():
                 if slot in st.output_names:
-                    store[st.output_names[slot]] = value
-                    lineage[st.output_names[slot]] = chain
+                    art = st.output_names[slot]
+                    store[art] = value
+                    lineage[art] = chain
+                    if art in order:
+                        order.remove(art)
+                    order.append(art)
         return store
 
 
@@ -487,22 +524,55 @@ def _record_lineage(pkl_path: str, chain: list, preset: str) -> None:
 
 # ----------------------------------------------------------------------------- presets
 
+def resolve_preset(path_or_dict, _seen: tuple = ()) -> dict:
+    """Flatten preset inheritance into {name, params, sources, steps, overrides}.
+
+    A preset may name a ``base`` (another preset file, relative to its own folder); it inherits the
+    base's params table, its steps (unless it lists its own) and the base's overrides (dropped when
+    it lists its own steps). Its own ``params`` are merged per stage and its ``overrides`` appended."""
+    import yaml
+    if isinstance(path_or_dict, dict):
+        data, here, label = copy.deepcopy(path_or_dict), os.getcwd(), path_or_dict.get("name", "preset")
+    else:
+        with open(path_or_dict, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        here, label = os.path.dirname(os.path.abspath(path_or_dict)), data.get("name") or \
+            os.path.splitext(os.path.basename(path_or_dict))[0]
+    if data.get("base"):
+        base_path = data["base"] if os.path.isabs(data["base"]) else os.path.join(here, data["base"])
+        if not base_path.endswith(".yaml"):
+            base_path += ".yaml"
+        if base_path in _seen:
+            raise ValueError(f"preset inheritance loops through {base_path}")
+        r = resolve_preset(base_path, _seen + (base_path,))
+    else:
+        r = {"params": {}, "sources": {}, "steps": [], "overrides": []}
+    for stage_name, vals in (data.get("params") or {}).items():
+        r["params"].setdefault(stage_name, {}).update(vals or {})
+        r["sources"].setdefault(stage_name, {}).update({k: label for k in (vals or {})})
+    if data.get("steps"):
+        r["steps"], r["overrides"] = data["steps"], []
+    r["overrides"] = r["overrides"] + [(o, label) for o in data.get("overrides") or []]
+    r["name"] = label
+    return r
+
+
 def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
-    """Preset = {name, steps: [{use, id?, params?, inputs?, outputs?, enabled?}]}.
-    Overrides, applied in order:
-      step.param=value        change a parameter (YAML-parsed value)
-      step.use=other_stage    swap the stage (parameters reset to the new stage's defaults)
+    """Preset = {name, base?, params: {stage: {param: value}}, steps: [{use, id?, params?, inputs?,
+    outputs?, enabled?}], overrides?: [...]}. Every value of every stage lives in a params table
+    (presets/best.yaml); stage classes only declare names and types.
+    Overrides (preset ``overrides`` first, then the call's), applied in order:
+      step.param=value        change a parameter of one step (YAML-parsed value)
+      step.use=other_stage    swap the stage (its values come from the params table)
       step.after=other        move a step (also step.before=other)
       -step                   drop a step
       +stage[#id][@after=step|@before=step]   insert a step (appended without a position)"""
     import yaml
 
-    if isinstance(path_or_dict, dict):
-        preset = copy.deepcopy(path_or_dict)
-    else:
-        with open(path_or_dict, encoding="utf-8") as f:
-            preset = yaml.safe_load(f)
-    steps = [StepSpec(**s) for s in preset["steps"]]
+    r = resolve_preset(path_or_dict)
+    steps = [StepSpec(**{k: v for k, v in s.items()}) for s in copy.deepcopy(r["steps"])]
+    for s in steps:
+        s.sources = {k: r["name"] + " (step)" for k in s.params}
     by_id = {(s.id or s.use): s for s in steps}
 
     def place(spec, where, ref, ov):
@@ -513,7 +583,7 @@ def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
         i = steps.index(by_id[ref])
         steps.insert(i + 1 if where == "after" else i, spec)
 
-    for ov in overrides or []:
+    for ov, origin in r["overrides"] + [(o, "override") for o in overrides or []]:
         if ov.startswith("+"):  # insert: +stage[#id][@after=step|@before=step]
             m = re.match(r"\+([\w.]+)(?:#([\w.]+))?(?:@(after|before)=([\w.]+))?$", ov)
             if not m:
@@ -544,20 +614,27 @@ def load_preset(path_or_dict, overrides: list[str] | None = None) -> Pipeline:
             place(by_id[step_id], key, str(parsed), ov)
         elif key == "enabled":
             by_id[step_id].enabled = bool(parsed)
-        elif key == "use":  # swap the stage; its parameters start from the new stage's defaults
+        elif key == "use":  # swap the stage; its values come from the params table
             by_id[step_id].use = parsed
-            by_id[step_id].params = {}
+            by_id[step_id].params, by_id[step_id].sources = {}, {}
         else:
+            stage_cls = REGISTRY.get(by_id[step_id].use)
+            if stage_cls and key not in {f.name for f in dataclasses.fields(stage_cls.Params)}:
+                raise ValueError(f"override '{ov}': stage {by_id[step_id].use} has no parameter '{key}'")
             by_id[step_id].params[key] = parsed
-    return Pipeline(steps, preset.get("name", "pipeline"))
+            by_id[step_id].sources[key] = origin
+    return Pipeline(steps, r["name"], r["params"], r["sources"])
 
 
-def describe() -> str:
-    """Registry as text: stage name, inputs -> outputs, parameters."""
+def describe(params: dict | None = None) -> str:
+    """Registry as text: stage name, inputs -> outputs, parameters (values from a params table)."""
     lines = []
     for name in sorted(REGISTRY):
+        if name.startswith("test."):
+            continue
         cls = REGISTRY[name]
-        params = ", ".join(f"{f.name}={f.default!r}" for f in dataclasses.fields(cls.Params)
-                           if f.default is not dataclasses.MISSING)
-        lines.append(f"{name}: {dict(cls.inputs)} -> {dict(cls.outputs)}  [{params}]")
+        vals = (params or {}).get(name, {})
+        ps = ", ".join(f"{f.name}={vals[f.name]!r}" if f.name in vals else f.name
+                       for f in dataclasses.fields(cls.Params))
+        lines.append(f"{name}: {dict(cls.inputs)} -> {dict(cls.outputs)}  [{ps}]")
     return "\n".join(lines)

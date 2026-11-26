@@ -10,6 +10,7 @@ Logging: stages log through logging.getLogger("ultrasinger.<area>"); see pipelin
 from __future__ import annotations
 
 import copy
+import dataclasses
 import os
 from dataclasses import dataclass
 
@@ -32,9 +33,9 @@ class SeparateVocals(Stage):
 
     @dataclass
     class Params:
-        model: str = "htdemucs_ft"            # demucs model
-        separator_model: str | None = None    # audio-separator model file instead of demucs (e.g. new models)
-        seed: int = 0                         # demucs' random time shift; other seeds = alternative candidates
+        model: str            # demucs model
+        separator_model: str | None    # audio-separator model file instead of demucs (e.g. new models)
+        seed: int                         # demucs' random time shift; other seeds = alternative candidates
 
     def run(self, ctx, audio):
         from modules.Audio.separation import DemucsModel, separate_vocal_from_audio
@@ -57,24 +58,31 @@ class PrepareVocals(Stage):
 
     @dataclass
     class Params:
-        denoise: bool = True
-        mute_silence: bool = True
+        denoise: bool
+        denoise_reduction_db: float   # ffmpeg afftdn noise reduction
+        denoise_floor_db: float       # ffmpeg afftdn noise floor
+        mute_silence: bool
+        silence_threshold_db: float   # quieter than this counts as silence (muted)
+        min_silence_ms: int           # shortest silence that is muted
 
     def run(self, ctx, audio):
         from modules.Audio.convert_audio import convert_audio_to_mono_wav
         from modules.Audio.denoise import denoise_vocal_audio
         from modules.Audio.silence_processing import mute_no_singing_parts
         from pipeline.core import fingerprint
-        # file names carry the input's hash: runs with different separations share a cache folder
-        base = os.path.join(ctx.cache_dir, f"{ctx.basename}_{fingerprint(audio)[:8]}")
+        # file names carry the hash of input and settings: runs with different separations or
+        # settings share a cache folder, and the denoise module reuses files by name
+        base = os.path.join(ctx.cache_dir, f"{ctx.basename}_{fingerprint([fingerprint(audio), dataclasses.asdict(self.params)])[:8]}")
         src = audio
         if self.params.denoise:
-            denoise_vocal_audio(src, base + "_denoised.wav")
+            denoise_vocal_audio(src, base + "_denoised.wav", self.params.denoise_reduction_db,
+                                self.params.denoise_floor_db)
             src = base + "_denoised.wav"
         convert_audio_to_mono_wav(src, base + "_mono.wav")
         src = base + "_mono.wav"
         if self.params.mute_silence:
-            mute_no_singing_parts(src, base + "_mute.wav")
+            mute_no_singing_parts(src, base + "_mute.wav", self.params.min_silence_ms,
+                                  self.params.silence_threshold_db)
             src = base + "_mute.wav"
         return {"audio": src}
 
@@ -89,7 +97,7 @@ class Tempo(Stage):
 
     @dataclass
     class Params:
-        scale: float = 1.0          # multiply (BPM jitter for evaluation)
+        scale: float          # multiply (BPM jitter for evaluation)
 
     def run(self, ctx, audio):
         from modules.Audio.bpm import get_bpm_from_file
@@ -120,12 +128,12 @@ class TranscribeWhisper(Stage):
 
     @dataclass
     class Params:
-        model: str = "large-v3-turbo"
-        batch_size: int = 4
-        compute_type: str | None = None
-        align_model: str | None = None
-        language: str | None = None
-        keep_numbers: bool = False
+        model: str
+        batch_size: int
+        compute_type: str | None
+        align_model: str | None
+        language: str | None
+        keep_numbers: bool
 
     def run(self, ctx, audio):
         from modules.Speech_Recognition.Whisper import WhisperModel, transcribe_with_whisper
@@ -144,10 +152,15 @@ class LyricsLookupLRCLIB(Stage):
     inputs = {"media": "media", "audio": "audio.processed"}
     outputs = {"lyrics": "lyrics"}
 
+    @dataclass
+    class Params:
+        max_duration_diff: float   # seconds; LRCLIB entries of other versions are skipped
+
     def run(self, ctx, media, audio):
         import librosa
         from modules.Speech_Recognition import lyrics_lookup as ll
-        return {"lyrics": ll.fetch_lyrics(media.artist or "", media.title or "", librosa.get_duration(path=audio))}
+        return {"lyrics": ll.fetch_lyrics(media.artist or "", media.title or "", librosa.get_duration(path=audio),
+                                          self.params.max_duration_diff)}
 
 
 @stage
@@ -159,13 +172,15 @@ class CorrectWithLyrics(Stage):
 
     @dataclass
     class Params:
-        min_match: float = 0.4
+        min_match: float          # lyrics with a smaller share of matching words are ignored
+        max_length_ratio: float   # replacements longer/shorter than ratio x + 1 words keep the transcript
 
     def run(self, ctx, words, lyrics):
         from modules.Speech_Recognition import lyrics_lookup as ll
         best, best_share = None, 0.0
         for cand in lyrics or []:
-            corrected, share = ll.correct_words(words, cand["plain"], self.params.min_match)
+            corrected, share = ll.correct_words(words, cand["plain"], self.params.min_match,
+                                                self.params.max_length_ratio)
             if corrected is not None and share > best_share:
                 best, best_share = corrected, share
         log.info("lyrics correction: " + (f"{best_share:.0%} of words matched" if best else "no matching lyrics"))
@@ -197,8 +212,8 @@ class AlignText(Stage):
 
     @dataclass
     class Params:
-        language: str = "en"
-        align_model: str | None = None
+        language: str | None
+        align_model: str | None
 
     def run(self, ctx, audio, text):
         from modules.Speech_Recognition.Whisper import align_lyrics_with_whisperx
@@ -217,9 +232,9 @@ class TranscribeQwen3(Stage):
 
     @dataclass
     class Params:
-        model: str = "Qwen/Qwen3-ASR-1.7B"
-        aligner: str = "Qwen/Qwen3-ForcedAligner-0.6B"
-        language: str | None = None
+        model: str
+        aligner: str
+        language: str | None
 
     def run(self, ctx, audio):
         from modules.Speech_Recognition.Qwen3ASR import transcribe_with_qwen3
@@ -240,7 +255,7 @@ class Hyphenate(Stage):
 
     @dataclass
     class Params:
-        enabled: bool = True
+        enabled: bool
 
     def run(self, ctx, words, language):
         from modules.Speech_Recognition.hyphenation import hyphenate_each_word
@@ -258,9 +273,16 @@ class SilenceSplit(Stage):
     inputs = {"syllables": "syllables|words", "audio": "audio.processed"}
     outputs = {"syllables": "@syllables"}
 
+    @dataclass
+    class Params:
+        silence_threshold_db: float   # quieter than this counts as silence
+        min_silence_ms: int           # shortest silence that splits a syllable
+
     def run(self, ctx, syllables, audio):
         from modules.Audio.silence_processing import remove_silence_from_transcription_data
-        return {"syllables": remove_silence_from_transcription_data(audio, syllables)}
+        p = self.params
+        return {"syllables": remove_silence_from_transcription_data(audio, syllables, p.min_silence_ms,
+                                                                    p.silence_threshold_db)}
 
 
 @stage
@@ -273,7 +295,7 @@ class SyllablesFromChart(Stage):
 
     @dataclass
     class Params:
-        language: str | None = None   # default: from the chart's #LANGUAGE
+        language: str | None   # default: from the chart's #LANGUAGE
 
     def run(self, ctx, chart):
         import re
@@ -340,17 +362,20 @@ class SegmentGAME(Stage):
 
     @dataclass
     class Params:
-        model_dir: str = os.path.join(os.path.expanduser("~"), ".cache", "game", "GAME-1.0.3-small-onnx")
-        boundary_threshold: float = 0.2
-        steps: int = 8
-        chunk_seconds: float = 30.0
-        seed: int = 0          # GAME samples noise; other seeds = alternative candidates
+        model_dir: str
+        boundary_threshold: float
+        steps: int
+        chunk_seconds: float
+        radius: int                  # boundary decoding radius (frames)
+        presence_threshold: float    # note presence probability
+        seed: int                    # GAME samples noise; other seeds = alternative candidates
 
     def run(self, ctx, syllables, audio, language):
         from modules.Midi.game_segmenter import game_notes_per_syllable, split_syllables_by_game
         p = self.params
-        notes = game_notes_per_syllable(audio, syllables, language, p.model_dir, ctx.device,
-                                        p.boundary_threshold, p.steps, p.chunk_seconds, p.seed)
+        notes = game_notes_per_syllable(audio, syllables, language, os.path.expanduser(p.model_dir), ctx.device,
+                                        p.boundary_threshold, p.steps, p.chunk_seconds, p.seed, p.radius,
+                                        p.presence_threshold)
         notes_by_id = {id(t): [tuple(n) for n in notes.get(id(t), [])] for t in syllables}
         new_syllables, pitches = split_syllables_by_game(syllables, notes_by_id)
         return {"syllables": new_syllables, "game": pitches}
@@ -364,10 +389,10 @@ class SegmentContour(Stage):
 
     @dataclass
     class Params:
-        min_duration: float = 0.08
-        smooth_frames: int = 5
-        conf_threshold: float = 0.4
-        tuning_correction: bool = True
+        min_duration: float
+        smooth_frames: int
+        conf_threshold: float
+        tuning_correction: bool
 
     def run(self, ctx, syllables, pitch):
         from modules.Midi.segmentation import split_syllables_by_contour
@@ -399,12 +424,12 @@ class NotesFromPitch(Stage):
 
     @dataclass
     class Params:
-        method: str = "chroma_mode"
-        conf_threshold: float = 0.4
-        edge_trim: float = 0.0
-        tuning_correction: bool = True
-        quantize_to_key: bool = True
-        key_min_offset: float = 0.1
+        method: str
+        conf_threshold: float
+        edge_trim: float
+        tuning_correction: bool
+        quantize_to_key: bool
+        key_min_offset: float
 
     def run(self, ctx, syllables, pitch, key):
         from modules.Audio.key_detector import get_allowed_notes_for_key
@@ -425,8 +450,8 @@ class NotesGamePitch(Stage):
 
     @dataclass
     class Params:
-        quantize_to_key: bool = True
-        key_min_offset: float = 0.1
+        quantize_to_key: bool
+        key_min_offset: float
 
     def run(self, ctx, notes, game, key):
         from modules.Audio.key_detector import get_allowed_notes_for_key
@@ -445,13 +470,15 @@ class MergeNotes(Stage):
 
     @dataclass
     class Params:
-        slides: bool = False
-        same_pitch_syllables: bool = True
+        slides: bool
+        slide_max_semitones: int   # only with slides: neighbours this close merge into a slide
+        same_pitch_syllables: bool
 
     def run(self, ctx, notes, syllables, tempo):
         from modules.Midi.note_ops import merge_syllable_segments
-        notes, syllables = merge_syllable_segments(notes, syllables, tempo, self.params.slides,
-                                                   self.params.same_pitch_syllables)
+        p = self.params
+        notes, syllables = merge_syllable_segments(notes, syllables, tempo, p.slides, p.same_pitch_syllables,
+                                                   p.slide_max_semitones)
         return {"notes": notes, "syllables": syllables}
 
 
@@ -464,12 +491,15 @@ class SnapEdges(Stage):
 
     @dataclass
     class Params:
-        max_shift: float = 0.5
-        conf: float = 0.1
+        max_shift: float   # seconds an edge may move
+        conf: float        # pitch confidence that counts as voiced
+        min_gap: float     # seconds kept free between notes
+        min_len: float     # shortest note after snapping
 
     def run(self, ctx, notes, pitch):
         from modules.Midi.note_ops import snap_note_edges
-        snap_note_edges(notes, pitch, self.params.max_shift, self.params.conf)
+        p = self.params
+        snap_note_edges(notes, pitch, p.max_shift, p.conf, p.min_gap, p.min_len)
         return {"notes": notes}
 
 
@@ -483,8 +513,8 @@ class Calibrate(Stage):
 
     @dataclass
     class Params:
-        offset: float = -0.07
-        end_extension: float = 0.06
+        offset: float
+        end_extension: float
 
     def run(self, ctx, notes):
         from modules.Midi.note_ops import apply_timing_calibration
@@ -501,11 +531,24 @@ class LineBreaks(Stage):
 
     @dataclass
     class Params:
-        model: str = "oliverguhr/fullstop-punctuation-multilingual-base"
+        model: str               # punctuation-restoration model
+        intercept: float         # break score = intercept + w_pause * log(pause + 0.02) + w_punct * logit(p)
+        w_pause: float
+        w_punct: float
+        chars_mean: float        # line length prior (characters), from the charts
+        chars_sd: float
+        chars_max: int
+        dur_median: float        # line duration prior (seconds, log-normal)
+        dur_log_sd: float
+        prior_weight: float
+        max_words: int
 
     def run(self, ctx, notes):
-        from modules.Ultrastar.line_breaks import plan_line_breaks
-        plan_line_breaks(notes, self.params.model, ctx.device)
+        from modules.Ultrastar.line_breaks import LineBreakModel, plan_line_breaks
+        p = self.params
+        model = LineBreakModel(p.intercept, p.w_pause, p.w_punct, p.chars_mean, p.chars_sd, p.chars_max,
+                               p.dur_median, p.dur_log_sd, p.prior_weight, p.max_words)
+        plan_line_breaks(notes, p.model, ctx.device, model)
         return {"notes": notes}
 
 
@@ -523,8 +566,8 @@ class WriteUltraStar(Stage):
 
     @dataclass
     class Params:
-        format_version: str = "1.2.0"
-        stems: bool = True
+        format_version: str
+        stems: bool
 
     def run(self, ctx, notes, tempo, media, language, key, vocals=None, instrumental=None):
         from modules.Audio.convert_audio import convert_audio_format
@@ -575,10 +618,10 @@ class WriteConventions(Stage):
 
     @dataclass
     class Params:
-        touching_notes: bool = False
-        line_breaks: bool = True
-        apostrophes: bool = True
-        capitalise: bool = True
+        touching_notes: bool
+        line_breaks: bool
+        apostrophes: bool
+        capitalise: bool
 
     def run(self, ctx, txt):
         from modules.Ultrastar.conventions import apply_conventions
