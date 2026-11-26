@@ -220,13 +220,35 @@ def base_config(ev: "Evaluator", song: str, dims: list[Dim]) -> dict:
     return base
 
 
+DEVICE = "cpu"        # set by main (--device)
+_RECORDS: list | None = None
+
+
 def step_cost(stage_name: str) -> float | None:
-    """Seconds per 30 s of audio from the runtime records (None: unknown)."""
-    from pipeline import runtimes
-    recs = [r for r in runtimes.load() if r.get("stage") == stage_name and r.get("audio_seconds")]
+    """Seconds per 30 s of audio from this device's runtime records (None: unknown)."""
+    global _RECORDS
+    if _RECORDS is None:
+        from pipeline import runtimes
+        _RECORDS = runtimes.load()
+    recs = [r for r in _RECORDS if r.get("stage") == stage_name and r.get("audio_seconds")
+            and r.get("device", "cpu") == DEVICE]
     if not recs:
         return None
     return float(np.median([r["seconds"] / r["audio_seconds"] * 30.0 for r in recs[-50:]]))
+
+
+def warm_up(ev: "Evaluator", names: list[str]) -> None:
+    """Without runtime records for this device the cheap/expensive split would guess; run the base
+    pipeline once on every song (fills the cache and records the runtimes)."""
+    global _RECORDS
+    p = ev.pipeline([], names[0])
+    missing = [st.name for st in p.stages if step_cost(st.name) is None]
+    if not missing:
+        return
+    print(f"warm-up: no runtime records on {DEVICE} for {missing}; running the base pipeline on {len(names)} songs")
+    for n in names:
+        ev.score(n, (), [], _write_index(ev, n))
+    _RECORDS = None
 
 
 def split_dims(base_pipeline: Pipeline, dims: list[Dim], cheap_seconds: float,
@@ -301,7 +323,7 @@ class Evaluator:
         out = os.path.join(self.tmp, slug(name))
         os.makedirs(out, exist_ok=True)
         return Context(cache_dir=os.path.abspath(os.path.join(self.work, "cache", slug(name))), output_dir=out,
-                       device="cpu", basename=f"{gt.artist} - {gt.title}", verbose=False,
+                       device=DEVICE, basename=f"{gt.artist} - {gt.title}", verbose=False,
                        extra={"no_cache": no_cache})
 
     def prefix(self, name: str, expensive_ov: tuple, tail_start: int) -> dict:
@@ -746,6 +768,7 @@ def main():
     ap.add_argument("--work", default="eval_work_ng")
     ap.add_argument("--trials", type=int, help="override every group's trial budget (smoke tests)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--device", default="auto", help="cpu | cuda | auto (cuda if available)")
     ap.add_argument("--race", help="compare search methods on one group, e.g. tpe,cmaes,random,coordinate")
     ap.add_argument("--group", help="with --race: the group (name from stages) to race on")
     ap.add_argument("--start", help="with --race: overrides to start from (a preset.yaml written by a tuning run)")
@@ -754,6 +777,13 @@ def main():
                          "are appended to, overrides taken from its preset.yaml)")
     args = ap.parse_args()
     plog.setup(verbose=False)   # our warnings + each distinct library warning once; repeats counted
+    global DEVICE
+    if args.device == "auto":
+        import torch
+        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        DEVICE = args.device
+    print(f"device: {DEVICE}" + (" (detected)" if args.device == "auto" else ""))
     with open(args.spec, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
     validate_spec(spec)
@@ -769,6 +799,7 @@ def main():
     ev = Evaluator(spec, args.work, train + holdout)
     names = [n for n, _ in train]
     groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
+    warm_up(ev, names)
     if args.race:
         return race(ev, names, groups, args, spec, folds, out_dir)
     start = list(ev.base_overrides)
