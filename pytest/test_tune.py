@@ -209,8 +209,11 @@ def test_edge_hits_flag_values_at_the_range_bounds():
 
 def test_objective_sum_times_factors():
     ev = tune.Evaluator.__new__(tune.Evaluator)
-    ev.terms, ev.factors = {"a": 1.0, "b": 0.5}, ["c"]
+    ev.terms, ev.factors = {"a": 1.0, "b": 0.5}, {"c": 0.0}
     assert ev.song_objective({"a": 0.6, "b": 0.4, "c": 0.5}) == pytest.approx(0.4)
+    ev.factors = {"c": 0.5}
+    assert ev.song_objective({"a": 0.6, "b": 0.4, "c": 0.0}) == pytest.approx(0.4)   # floored, not zeroed
+    assert ev.song_objective({"a": 0.6, "b": 0.4, "c": 1.0}) == pytest.approx(0.8)
     assert ev.song_objective({"a": 0.6, "b": 0.4}) == pytest.approx(0.8)            # missing factor = 1
     assert ev.song_objective({"a": 0.6, "b": float("nan"), "c": 1.0}) == pytest.approx(0.6)
 

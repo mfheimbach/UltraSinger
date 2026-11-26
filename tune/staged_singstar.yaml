@@ -13,9 +13,9 @@ data:
   holdout: eval_singstar/selection   # mandatory; disjoint from train, scored once at the end
   folds: 3
   gt_language: true
-objective:          # per song: weighted sum x factors (lyrics gate: wrong words break a chart), mean over songs
+objective:          # per song: weighted sum x (floor + (1 - floor) x factor), mean over songs
   sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
-  multiply: [lyrics_acc]
+  multiply: {lyrics_acc: 0.5}   # wrong words halve a chart's value; failed transcriptions still count (logged)
 # noise levels per engine come from tune/noise.yaml (see there)
 noise_sigma: 1.0    # adoption: ~1 noise SD
 step_sigma: 0.25    # search steps (patience, coordinate moves): a quarter SD

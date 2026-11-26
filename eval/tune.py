@@ -13,7 +13,7 @@ A tuning spec (YAML) names a base preset, the data, the objective and the search
       gt_language: true                 # language from the chart (short windows)
     objective:                          # per song: weighted sum x factors; mean over songs
       sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
-      multiply: [lyrics_acc]
+      multiply: {lyrics_acc: 0.5}       # factor floor: song x (0.5 + 0.5 x lyrics_acc)
     min_gain: 0.001                     # adopt only gains above max(min_gain, noise_sigma x noise SD)
     noise_sigma: 1.0                    # noise SD per engine: tune/noise.yaml
     fold_gate: true
@@ -303,7 +303,12 @@ class Evaluator:
         self.prefix_cache: dict = {}
         self.tmp = tempfile.mkdtemp(prefix="tune_")
         self.terms = dict(spec["objective"]["sum"])
-        self.factors = list(spec["objective"].get("multiply") or [])
+        # multiply: {metric: floor}; factor = floor + (1 - floor) * metric, so a song whose factor metric
+        # collapses (failed transcription) still counts, at floor weight
+        self.factors = {k: float(v) for k, v in (spec["objective"].get("multiply") or {}).items()}
+        for k, f in self.factors.items():
+            if not 0.0 <= f < 1.0:
+                raise SystemExit(f"objective.multiply.{k}: floor {f} must be in [0, 1)")
         self.metric_keys = list(self.terms) + [k for k in self.factors if k not in self.terms]
         self.last_chart: dict[str, str] = {}   # song -> chart text of the last score() (no-effect probe)
 
@@ -354,10 +359,27 @@ class Evaluator:
         def ok(k):
             return d.get(k) is not None and d.get(k) == d.get(k)
         total = sum(w * d[k] for k, w in self.terms.items() if ok(k))
-        for k in self.factors:
+        for k, floor in self.factors.items():
             if ok(k):
-                total *= d[k]
+                total *= floor + (1.0 - floor) * d[k]
         return float(total)
+
+    def report_floored(self, names: list[str], tail_start_of) -> list[str]:
+        """Songs whose factor metric is near zero on the base config (they count at floor weight):
+        logged as a warning and returned for the report."""
+        import logging
+        out = []
+        for n in names:
+            d = self.score(n, (), [], tail_start_of(n))
+            low = [f"{k} {d[k]:.2f}" for k, floor in self.factors.items()
+                   if d.get(k) is not None and d.get(k) == d.get(k) and d[k] <= 0.1]
+            if low:
+                out.append(f"{n} ({', '.join(low)})")
+        if out:
+            logging.getLogger("ultrasinger.tune").warning(
+                f"FLOORED: {len(out)} song(s) count at floor weight (factor metric <= 0.1, e.g. failed "
+                f"transcription): {out}")
+        return out
 
     def objective(self, per_song: list[dict]) -> float:
         """Mean over songs of the per-song objective (the same aggregation everywhere)."""
@@ -800,6 +822,7 @@ def main():
     names = [n for n, _ in train]
     groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
     warm_up(ev, names)
+    floored = ev.report_floored(names, lambda n: _write_index(ev, n)) if ev.factors else []
     if args.race:
         return race(ev, names, groups, args, spec, folds, out_dir)
     start = list(ev.base_overrides)
@@ -811,6 +834,8 @@ def main():
                   f"objective `{spec['objective']}`, {len(names)} songs, {folds} CV folds, holdout "
                   f"{len(holdout)} songs", ""]
         all_rows = []
+        if floored:
+            report += [f"songs counting at floor weight on the base config (factor metric <= 0.1): {floored}", ""]
     # keep a group only if its cross-validated gain is above the smallest gain that counts:
     # max(min_gain, noise_sigma x noise SD of the step), see group_noise / min_gain
     for gi, group in enumerate(groups):

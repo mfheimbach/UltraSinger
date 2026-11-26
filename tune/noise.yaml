@@ -6,20 +6,20 @@
 # and per-song replicate metrics so the SD can be recomputed for any objective / subset.
 eval_singstar/bench:
   separate[htdemucs_ft]:
-    sd: 0.0515
+    sd: 0.0208
     n: 3
-    how: "demucs seeds 0-2 (runs sel_sep0-2, re-scored), preset bench; old objective: 0.0298"
+    how: "demucs seeds 0-2 (runs sel_sep0-2, re-scored), preset bench; earlier objectives: 0.0298 (additive), 0.0515 (unfloored lyrics factor)"
     date: 2026-11-26
     objective: &obj
       sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
-      multiply: [lyrics_acc]
+      multiply: {lyrics_acc: 0.5}
   # transcribe.whisper: not chaotic for small input changes. Placebo 2026-11-26 (prepare.denoise_reduction_db
   # 68/69/70/71, runs wnoise_*): 0 of 12 transcripts changed, objective identical (one window's notes
-  # changed via GAME; its lyrics factor is 0). No entry, so groups before Whisper fall through to the next
+  # changed via GAME; objective SD 0.0036, i.e. GAME's noise). No entry, so groups before Whisper fall through to the next
   # chaotic module (GAME). The earlier 0.0139 "placebo" (silence muting -50/-60 dB) was a real effect.
   segment.game[GAME-1.0.3-small-onnx]:
-    sd: 0.0038
+    sd: 0.0048
     n: 3
-    how: "GAME seeds 0-2 (runs sel_sep0, selg_game1-2, re-scored); old objective: 0.0044"
+    how: "GAME seeds 0-2 (runs sel_sep0, selg_game1-2, re-scored); earlier objectives: 0.0044, 0.0038"
     date: 2026-11-26
     objective: *obj
