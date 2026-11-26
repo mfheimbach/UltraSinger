@@ -62,7 +62,10 @@ stages:
   # --- syllables
   - name: hyphenation
     search:
-      syllables.hyphenate.enabled: [true, false]
+      syllables.hyphenate.enabled:
+        true:
+          syllables.hyphenate.backend: [pyhyphen, pyphen]
+        false: {}
   - name: silence split
     search:
       syllables.silence_split.silence_threshold_db: [-60, -50, -40]

@@ -120,10 +120,30 @@ def hyphenation(word: str, hyphenator: Hyphenator) -> list[str] | None:
     return hyphen
 
 
+class _PyphenHyphenator:
+    """pyphen (dictionaries bundled, offline) behind the pyhyphen `syllables` interface."""
+
+    def __init__(self, language: str):
+        import pyphen
+        code = pyphen.language_fallback(language)
+        if code is None:
+            raise ValueError(f"pyphen has no dictionary for {language!r}")
+        log.info(f"Hyphenate (pyphen) using language code: {blue_highlighted(code)}")
+        self._dic = pyphen.Pyphen(lang=code)
+
+    def syllables(self, word: str) -> list[str]:
+        parts = self._dic.inserted(word, hyphen="\x00").split("\x00")
+        return parts if len(parts) > 1 else []
+
+
 def hyphenate_each_word(
-        language: str, transcribed_data: list[TranscribedData]
+        language: str, transcribed_data: list[TranscribedData], backend: str = "pyhyphen"
 ) -> list[list[str]] | None:
     """Hyphenate each word in the transcribed data."""
+    if backend == "pyphen":
+        return _hyphenate_all(_PyphenHyphenator(language), transcribed_data)
+    if backend != "pyhyphen":
+        raise ValueError(f"unknown hyphenation backend {backend!r}")
     lang_region = language_check(language)
     if lang_region is None:
         log.warning(f"{red_highlighted('Error in hyphenation for language ')} {blue_highlighted(language)}{red_highlighted(', maybe you want to disable it?')}"
@@ -144,3 +164,7 @@ def hyphenate_each_word(
         return None
 
     return hyphenated_word
+
+
+def _hyphenate_all(hyphenator, transcribed_data: list[TranscribedData]) -> list[list[str]]:
+    return [hyphenation(t.word, hyphenator) for t in transcribed_data]

@@ -178,3 +178,14 @@ def test_boundary_score_quadratic_and_one_to_one():
     assert boundary_score(g, g + 0.2, tau=0.1) == 0.0                           # beyond tau: unpaired
     assert boundary_score(g, np.array([1.0, 2.0]), tau=0.1) == pytest.approx(2 / 3)   # one missed
     assert boundary_score(g, np.array([1.0, 1.01, 2.0, 3.0]), tau=0.1) == pytest.approx(3 / 4)  # one extra
+
+
+def test_hyphenate_pyphen_backend_offline():
+    from types import SimpleNamespace
+    from modules.Speech_Recognition.hyphenation import hyphenate_each_word
+    words = [SimpleNamespace(word=w) for w in ["Cendrillon,", "la"]]
+    out = hyphenate_each_word("fr", words, "pyphen")
+    assert out[0][0] == "Cen" and out[0][-1].endswith(",") and out[1] is None
+    import pytest
+    with pytest.raises(ValueError):
+        hyphenate_each_word("fr", words, "nope")

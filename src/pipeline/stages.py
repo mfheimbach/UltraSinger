@@ -291,7 +291,7 @@ class TranscribeQwen3(Stage):
 
 @stage
 class Hyphenate(Stage):
-    """words -> syllables (pyphen), timing split evenly over a word's syllables."""
+    """words -> syllables (pyhyphen or pyphen), timing split evenly over a word's syllables."""
     name = "syllables.hyphenate"
     inputs = {"words": "words", "language": "language"}
     outputs = {"syllables": "syllables"}
@@ -299,13 +299,14 @@ class Hyphenate(Stage):
     @dataclass
     class Params:
         enabled: bool
+        backend: str      # pyhyphen (downloads LibreOffice dicts; fr broken upstream) | pyphen (bundled)
 
     def run(self, ctx, words, language):
         from modules.Speech_Recognition.hyphenation import hyphenate_each_word
         from modules.Speech_Recognition.text_ops import add_hyphen_to_data
         if not self.params.enabled:
             return {"syllables": words}
-        hyphen = hyphenate_each_word(language, words)
+        hyphen = hyphenate_each_word(language, words, self.params.backend)
         return {"syllables": add_hyphen_to_data(words, hyphen) if hyphen is not None else words}
 
 

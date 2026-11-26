@@ -18,7 +18,7 @@ params:
   lyrics.lrclib: {max_duration_diff: 15.0, max_candidates: 3}
   words.correct_lyrics: {min_match: 0.4, max_length_ratio: 2.0}
   words.strip_punctuation: {}
-  syllables.hyphenate: {enabled: true}
+  syllables.hyphenate: {enabled: true, backend: pyhyphen}
   syllables.silence_split: {silence_threshold_db: -50, min_silence_ms: 50, min_piece: 0.1}
   syllables.trim_overlaps: {}
   syllables.from_chart: {language: null}
