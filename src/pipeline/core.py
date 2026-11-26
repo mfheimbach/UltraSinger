@@ -33,24 +33,6 @@ from typing import Any
 
 # Artifact kinds; an artifact's kind is the part of its name before the first dot
 # (audio.vocals -> audio, pitch.rmvpe -> pitch). Bare names are their own kind.
-KINDS = {
-    "audio": "path to a wav file",
-    "words": "list[TranscribedData] (word level, with timing)",
-    "syllables": "list[TranscribedData] (syllable level, with timing)",
-    "pitch": "PitchedData (frame-level f0 + confidence)",
-    "notes": "list[MidiSegment] (line_start flags mark lines)",
-    "tempo": "float bpm",
-    "key": "tuple[str, str] (key, mode)",
-    "language": "str language code",
-    "lyrics": "list[dict] candidate lyrics (plain / synced)",
-    "media": "MediaInfo",
-    "file": "path to an output file",
-    "aux": "stage-specific extra data",
-}
-
-
-def kind_of(name: str) -> str:
-    return name.split(".", 1)[0]
 
 
 _FILE_FP: dict[tuple, str] = {}

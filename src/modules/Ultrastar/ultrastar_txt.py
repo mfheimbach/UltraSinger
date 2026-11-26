@@ -85,21 +85,6 @@ class UltrastarTxtNoteTypeTag(str, Enum):
     GOLDEN = '*'
 
 
-def get_note_type_from_string(note_type_str: str) -> UltrastarTxtNoteTypeTag:
-    if note_type_str == UltrastarTxtNoteTypeTag.NORMAL.value:
-        return UltrastarTxtNoteTypeTag.NORMAL
-    elif note_type_str == UltrastarTxtNoteTypeTag.RAP.value:
-        return UltrastarTxtNoteTypeTag.RAP
-    elif note_type_str == UltrastarTxtNoteTypeTag.RAP_GOLDEN.value:
-        return UltrastarTxtNoteTypeTag.RAP_GOLDEN
-    elif note_type_str == UltrastarTxtNoteTypeTag.FREESTYLE.value:
-        return UltrastarTxtNoteTypeTag.FREESTYLE
-    elif note_type_str == UltrastarTxtNoteTypeTag.GOLDEN.value:
-        return UltrastarTxtNoteTypeTag.GOLDEN
-    else:
-        raise ValueError(f"Unknown NoteType: {note_type_str}")
-
-
 @dataclass
 class UltrastarNoteLine:
     startBeat: float

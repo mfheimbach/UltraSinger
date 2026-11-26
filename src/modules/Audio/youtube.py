@@ -7,8 +7,7 @@ import yt_dlp
 
 from modules.os_helper import sanitize_filename, get_unused_song_output_dir
 from modules import os_helper
-from modules.ProcessData import MediaInfo
-from modules.Audio.bpm import get_bpm_from_file
+from modules.media_info import MediaInfo
 from modules.Image.image_helper import save_image
 from modules.musicbrainz_client import search_musicbrainz
 from modules.ffmpeg_helper import separate_audio_video

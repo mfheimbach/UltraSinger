@@ -514,14 +514,14 @@ class NotesFromPitch(Stage):
         key_min_offset: float
 
     def run(self, ctx, syllables, pitch, key):
-        from modules.Audio.key_detector import get_allowed_notes_for_key
-        from modules.Midi.midi_creator import NotePitchOptions, create_midi_segments_from_transcribed_data
+        from modules.Midi.key_quantize import get_allowed_notes_for_key
+        from modules.Midi.note_pitch import NotePitchOptions, notes_from_pitch
         p = self.params
         options = NotePitchOptions(method=p.method, conf_threshold=p.conf_threshold, edge_trim=p.edge_trim,
                                    tuning_correction=p.tuning_correction, tuning_min_frames=p.tuning_min_frames,
                                    fmin=p.fmin, fmax=p.fmax, key_min_offset=p.key_min_offset)
         allowed = get_allowed_notes_for_key(*key) if p.quantize_to_key else None
-        return {"notes": create_midi_segments_from_transcribed_data(syllables, pitch, allowed, options)}
+        return {"notes": notes_from_pitch(syllables, pitch, allowed, options)}
 
 
 @stage
@@ -537,7 +537,7 @@ class NotesGamePitch(Stage):
         key_min_offset: float
 
     def run(self, ctx, notes, game, key):
-        from modules.Audio.key_detector import get_allowed_notes_for_key
+        from modules.Midi.key_quantize import get_allowed_notes_for_key
         from modules.Midi.note_ops import apply_game_pitches
         allowed = get_allowed_notes_for_key(*key) if self.params.quantize_to_key else None
         apply_game_pitches(notes, game, allowed, self.params.key_min_offset)
@@ -682,7 +682,7 @@ class WriteUltraStar(Stage):
 
     def run(self, ctx, notes, tempo, media, language, key, vocals=None, instrumental=None):
         from modules.Audio.convert_audio import convert_audio_format
-        from modules.Ultrastar.coverter.ultrastar_txt_converter import create_ultrastar_txt_from_automation
+        from modules.Ultrastar.writer import write_chart
         from modules.Ultrastar.ultrastar_txt import FormatVersion
         from version import APP_VERSION
         media = copy.copy(media)
@@ -692,7 +692,7 @@ class WriteUltraStar(Stage):
             ext = media.audio_extension
             convert_audio_format(instrumental, os.path.join(ctx.output_dir, f"{ctx.basename} [Instrumental].{ext}"))
             convert_audio_format(vocals, os.path.join(ctx.output_dir, f"{ctx.basename} [Vocals].{ext}"))
-        txt = create_ultrastar_txt_from_automation(ctx.basename, ctx.output_dir, notes, media,
+        txt = write_chart(ctx.basename, ctx.output_dir, notes, media,
                                                    FormatVersion(self.params.format_version), True,
                                                    APP_VERSION, self.params.max_bpm)
         return {"txt": txt}
@@ -711,10 +711,9 @@ class WriteMidi(Stage):
         velocity: int
 
     def run(self, ctx, notes, tempo):
-        from modules.Midi.midi_creator import create_midi_file
+        from modules.Midi.midi_writer import write_midi_file
         os.makedirs(ctx.output_dir, exist_ok=True)
-        create_midi_file(tempo, ctx.output_dir, notes, ctx.basename, self.params.velocity)
-        return {"midi": os.path.join(ctx.output_dir, f"{ctx.basename}.mid")}
+        return {"midi": write_midi_file(tempo, ctx.output_dir, notes, ctx.basename, self.params.velocity)}
 
 
 @stage

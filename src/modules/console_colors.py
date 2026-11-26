@@ -13,32 +13,10 @@ def green_highlighted(text: str) -> str:
     return f"{Bcolors.dark_green}{text}{Bcolors.endc}"
 
 
-def gold_highlighted(text: str) -> str:
-    """Returns a gold highlighted text"""
-    return f"{Bcolors.gold}{text}{Bcolors.endc}"
-
-
-def light_blue_highlighted(text: str) -> str:
-    """Returns a light blue highlighted text"""
-    return f"{Bcolors.light_blue}{text}{Bcolors.endc}"
-
-
-def underlined(text: str) -> str:
-    """Returns an underlined text"""
-    return f"{Bcolors.underline}{text}{Bcolors.endc}"
-
-
 def red_highlighted(text: str) -> str:
     """Returns a red highlighted text"""
     return f"{Bcolors.red}{text}{Bcolors.endc}"
 
-def cyan_highlighted(text: str) -> str:
-    """Returns a cyan highlighted text"""
-    return f"{Bcolors.cyan}{text}{Bcolors.endc}"
-
-def bright_green_highlighted(text: str) -> str:
-    """Returns a cyan highlighted text"""
-    return f"{Bcolors.bright_green}{text}{Bcolors.endc}"
 
 class Bcolors:
     """Colors for the console"""

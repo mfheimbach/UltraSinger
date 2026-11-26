@@ -159,7 +159,7 @@ TAIL = ["notes.from_pitch", "notes.game_pitch", "notes.merge", "notes.snap_edges
 
 
 def test_golden_tail(monkeypatch):
-    from modules.ProcessData import MediaInfo
+    from modules.media_info import MediaInfo
     monkeypatch.setenv("ULTRASINGER_STRICT", "1")
     with open(FIXTURE, "rb") as f:
         fx = pickle.load(f)

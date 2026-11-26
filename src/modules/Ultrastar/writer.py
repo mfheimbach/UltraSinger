@@ -1,27 +1,37 @@
-"""Ultrastar writer module"""
+"""UltraStar chart writer: notes (MidiSegments with line_start flags) + media info -> .txt.
+
+Line breaks are written where the notes say (a line-break step decides them); the beat grid is the
+chart BPM multiplied up to just below max_bpm.
+"""
 
 import logging
-
+import os
 import re
+
 import langcodes
+import librosa
 from packaging import version
 
-from modules.Ultrastar.coverter.ultrastar_converter import (
-    real_bpm_to_ultrastar_bpm,
-    second_to_beat, )
-from modules.Ultrastar.coverter.ultrastar_midi_converter import convert_midi_note_to_ultrastar_note
-from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue, UltrastarTxtTag, UltrastarTxtNoteTypeTag, \
-    FILE_ENCODING
-from modules.Ultrastar.ultrastar_score_calculator import Score
 from modules.Midi.MidiSegment import MidiSegment
+from modules.media_info import MediaInfo
+from modules.Ultrastar.ultrastar_txt import FILE_ENCODING, FormatVersion, UltrastarTxtNoteTypeTag, UltrastarTxtTag, \
+    UltrastarTxtValue
+from modules.console_colors import blue_highlighted
 
 log = logging.getLogger("ultrasinger.ultrastar_writer")
+
+BEATS_PER_QUARTER = 4     # format: the UltraStar BPM counts quarter beats of the real tempo
+ULTRASTAR_C4_MIDI = 48    # format: UltraStar pitch 0 = MIDI 48
+
+
+def second_to_beat(seconds: float, real_bpm: float) -> float:
+    return seconds * real_bpm / 60
 
 
 def get_multiplier(ultrastar_bpm: float, max_bpm: float) -> int:
     """Largest integer multiplier keeping the chart BPM below max_bpm (finer beat grid), at least 1."""
     if ultrastar_bpm == 0:
-        raise Exception("BPM is 0")
+        raise ValueError("BPM is 0")
     multiplier = 1
     while ultrastar_bpm * (multiplier + 1) < max_bpm:
         multiplier += 1
@@ -29,9 +39,81 @@ def get_multiplier(ultrastar_bpm: float, max_bpm: float) -> int:
 
 
 def get_language_name(language: str) -> str:
-    """Creates the language name from the language code"""
-
     return langcodes.Language.make(language=language).display_name()
+
+
+def write_chart(
+        basename: str,
+        song_folder_output_path: str,
+        midi_segments: list[MidiSegment],
+        media_info: MediaInfo,
+        format_version: FormatVersion,
+        create_karaoke: bool,
+        app_version: str,
+        max_bpm: float,
+):
+    """Notes + media info -> <basename>.txt in song_folder_output_path (plus a [Karaoke] copy for
+    format versions before 1.1.0). Returns the chart's path."""
+    log.info(f"Using UltraStar {blue_highlighted(f'Format Version {format_version.value}')}")
+
+    ultrastar_txt = UltrastarTxtValue()
+    ultrastar_txt.version = format_version.value
+    if media_info.audio_extension is None:
+        raise Exception("Missing Audio extension. It is required to create Ultrastar txt")
+    ultrastar_txt.mp3 = basename + "." + media_info.audio_extension
+    ultrastar_txt.audio = basename + "." + media_info.audio_extension
+    ultrastar_txt.vocals = basename + " [Vocals]." + media_info.audio_extension
+    ultrastar_txt.instrumental = basename + " [Instrumental]." + media_info.audio_extension
+    if media_info.video_extension is not None:
+        ultrastar_txt.video = basename + "." + media_info.video_extension
+    ultrastar_txt.language = media_info.language
+    cover = basename + " [CO].jpg"
+    ultrastar_txt.cover = (
+        cover if os.path.isfile(os.path.join(song_folder_output_path, cover)) else None
+    )
+    ultrastar_txt.creator = f"{ultrastar_txt.creator} {app_version}"
+    ultrastar_txt.comment = f"{ultrastar_txt.comment} {app_version}"
+
+    # Additional data
+    ultrastar_txt.title = media_info.title
+    ultrastar_txt.artist = media_info.artist
+    if media_info.year is not None:
+        ultrastar_txt.year = extract_year(media_info.year)
+    if media_info.genre is not None:
+        ultrastar_txt.genre = format_separated_string(media_info.genre)
+    if media_info.video_url is not None:
+        ultrastar_txt.videoUrl = media_info.video_url
+    if media_info.cover_url is not None:
+        ultrastar_txt.coverUrl = media_info.cover_url
+    if media_info.music_key is not None:
+        # todo: as list add here?
+        ultrastar_txt.tags = f"key: {media_info.music_key}"
+
+    ultrastar_file_output_path = os.path.join(song_folder_output_path, basename + ".txt")
+    create_ultrastar_txt(
+        midi_segments,
+        ultrastar_file_output_path,
+        ultrastar_txt,
+        media_info.bpm,
+        max_bpm,
+    )
+    if create_karaoke and version.parse(format_version.value) < version.parse(FormatVersion.V1_1_0.value):
+        title = basename + " [Karaoke]"
+        ultrastar_txt.title = title
+        ultrastar_txt.mp3 = title + "." + media_info.audio_extension
+        karaoke_output_path = os.path.join(song_folder_output_path, title)
+        karaoke_txt_output_path = karaoke_output_path + ".txt"
+        create_ultrastar_txt(
+            midi_segments,
+            karaoke_txt_output_path,
+            ultrastar_txt,
+            media_info.bpm,
+            max_bpm,
+        )
+    if version.parse(format_version.value) < version.parse(FormatVersion.V1_2_0.value):
+        ultrastar_txt.videoUrl = media_info.video_url
+
+    return ultrastar_file_output_path
 
 
 def create_ultrastar_txt(
@@ -45,7 +127,7 @@ def create_ultrastar_txt(
 
     log.info(f"Creating UltraStar file {ultrastar_file_output}")
 
-    ultrastar_bpm = real_bpm_to_ultrastar_bpm(real_bpm)
+    ultrastar_bpm = real_bpm / BEATS_PER_QUARTER
     multiplication = get_multiplier(ultrastar_bpm, max_bpm)
     ultrastar_bpm = ultrastar_bpm * multiplication
 
@@ -115,7 +197,7 @@ def create_ultrastar_txt(
             line = f"{UltrastarTxtNoteTypeTag.NORMAL.value} " \
                    f"{str(start_beat)} " \
                    f"{str(duration)} " \
-                   f"{str(convert_midi_note_to_ultrastar_note(midi_segment))} " \
+                   f"{str(librosa.note_to_midi(midi_segment.note) - ULTRASTAR_C4_MIDI)} " \
                    f"{midi_segment.word}\n"
 
             file.write(line)
@@ -135,78 +217,6 @@ def create_ultrastar_txt(
                             f"{str(round(show_next))}\n"
                 file.write(linebreak)
         file.write(f"{UltrastarTxtTag.FILE_END.value}")
-
-
-def create_repitched_txt_from_ultrastar_data(
-        input_file: str, note_numbers: list[int], output_repitched_ultrastar: str
-) -> None:
-    """Creates a repitched ultrastar txt file from the original one"""
-    # todo: just add '_repitched' to input_file
-    log.info(f"Creating repitched ultrastar txt -> {output_repitched_ultrastar}")
-
-    # todo: to reader
-    with open(input_file, "r", encoding=FILE_ENCODING) as file:
-        txt = file.readlines()
-
-    i = 0
-    # todo: just add '_repitched' to input_file
-    with open(output_repitched_ultrastar, "w", encoding=FILE_ENCODING) as file:
-        for line in txt:
-            # every note type gets a midi segment, so every note line must consume one
-            if line.startswith((
-                    f"{UltrastarTxtNoteTypeTag.FREESTYLE.value} ",
-                    f"{UltrastarTxtNoteTypeTag.NORMAL.value} ",
-                    f"{UltrastarTxtNoteTypeTag.GOLDEN.value} ",
-                    f"{UltrastarTxtNoteTypeTag.RAP.value} ",
-                    f"{UltrastarTxtNoteTypeTag.RAP_GOLDEN.value} ")):
-                parts = re.findall(r"\S+|\s+", line)
-                # between are whitespaces
-                # [0] :
-                # [2] start beat
-                # [4] duration
-                # [6] pitch
-                # [8] word
-                parts[6] = str(note_numbers[i])
-                delimiter = ""
-                file.write(delimiter.join(parts))
-                i += 1
-            else:
-                file.write(line)
-
-
-def add_score_to_ultrastar_txt(ultrastar_file_output: str, score: Score) -> None:
-    """Adds the score to the ultrastar txt file"""
-    with open(ultrastar_file_output, "r", encoding=FILE_ENCODING) as file:
-        text = file.read()
-    text = text.split("\n")
-
-    for i, line in enumerate(text):
-        if line.startswith(f"#{UltrastarTxtTag.COMMENT.value}:"):
-            text[
-                i
-            ] = f"{line} | Score: total: {score.score}, notes: {score.notes} line: {score.line_bonus}, golden: {score.golden}"
-            break
-
-        if line.startswith((
-                f"{UltrastarTxtNoteTypeTag.FREESTYLE.value} ",
-                f"{UltrastarTxtNoteTypeTag.NORMAL.value} ",
-                f"{UltrastarTxtNoteTypeTag.GOLDEN.value} ",
-                f"{UltrastarTxtNoteTypeTag.RAP.value} ",
-                f"{UltrastarTxtNoteTypeTag.RAP_GOLDEN.value} ")):
-            text.insert(
-                i,
-                f"#{UltrastarTxtTag.COMMENT.value}: UltraSinger [GitHub] | Score: total: {score.score}, notes: {score.notes} line: {score.line_bonus}, golden: {score.golden}",
-            )
-            break
-
-    text = "\n".join(text)
-
-    with open(ultrastar_file_output, "w", encoding=FILE_ENCODING) as file:
-        file.write(text)
-
-
-class UltraStarWriter:
-    """Docstring"""
 
 
 def format_separated_string(data: str) -> str:
@@ -229,3 +239,12 @@ def format_separated_string(data: str) -> str:
         formatted_string = formatted_string[:-2]
 
     return formatted_string
+
+
+def extract_year(date: str) -> str:
+    """First four-digit year in a date string (MusicBrainz dates), else the string."""
+    match = re.search(r'\b\d{4}\b', date)
+    if match:
+        return match.group(0)
+    else:
+        return date

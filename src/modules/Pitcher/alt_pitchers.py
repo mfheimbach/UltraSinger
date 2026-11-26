@@ -6,7 +6,6 @@ Needs onnxruntime (already used by SwiftF0); downloads rmvpe.onnx from Hugging F
 
 import logging
 
-import os
 
 import librosa
 import numpy as np

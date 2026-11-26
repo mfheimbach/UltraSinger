@@ -2,7 +2,6 @@ import logging
 import musicbrainzngs
 import string
 import time
-from urllib.error import URLError
 from Levenshtein import ratio
 from dataclasses import dataclass
 from typing import Optional

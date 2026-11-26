@@ -95,7 +95,7 @@ def _git_version() -> str | None:
 
 
 def media_from_filename(path: str, artist: str | None = None, title: str | None = None):
-    from modules.ProcessData import MediaInfo
+    from modules.media_info import MediaInfo
     stem = os.path.splitext(os.path.basename(path))[0]
     if not (artist and title):
         artist, title = stem.split(" - ", 1) if " - " in stem else ("Unknown", stem)

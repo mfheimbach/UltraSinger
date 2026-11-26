@@ -1,9 +1,6 @@
 """Whisper Speech Recognition Module"""
 
 import logging
-import os
-import inspect
-import textwrap
 
 # Set environment variable to handle cuDNN loading issues
 # CUDA_MODULE_LOADING=LAZY allows PyTorch to continue even if some cuDNN modules are not found
@@ -29,7 +26,7 @@ from torch.cuda import OutOfMemoryError
 
 from modules.Speech_Recognition.TranscriptionResult import TranscriptionResult
 from modules.console_colors import blue_highlighted, red_highlighted
-from modules.Speech_Recognition.TranscribedData import TranscribedData, from_whisper
+from modules.Speech_Recognition.TranscribedData import from_whisper
 
 #Addition for numbers to words
 import re
@@ -74,23 +71,6 @@ def number_to_words(line,language='en'):
             out_tokens.append(token)
     return ''.join(out_tokens) 
 
-def replace_code_lines(source, start_token, end_token,
-                       replacement, escape_tokens=True):
-    """Replace the source code between `start_token` and `end_token`
-    in `source` with `replacement`. The `start_token` portion is included
-    in the replaced code. If `escape_tokens` is True (default),
-    escape the tokens to avoid them being treated as a regular expression."""
-
-    if escape_tokens:
-        start_token = re.escape(start_token)
-        end_token = re.escape(end_token)
-
-    def replace_with_indent(match):
-        indent = match.group(1)
-        return textwrap.indent(replacement, indent)
-
-    return re.sub(r"^(\s+)({}[\s\S]+?)(?=^\1{})".format(start_token, end_token),
-                  replace_with_indent, source, flags=re.MULTILINE)
 
 def transcribe_with_whisper(
     audio_path: str,

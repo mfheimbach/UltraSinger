@@ -91,7 +91,7 @@ def test_planned_breaks_follow_pauses_and_punctuation(monkeypatch):
 # ----------------------------------------------------------------------------- writer grid, conventions, key
 
 def test_bpm_multiplier_stays_below_max_and_is_at_least_one():
-    from modules.Ultrastar.ultrastar_writer import get_multiplier
+    from modules.Ultrastar.writer import get_multiplier
     assert get_multiplier(100.0, 400.0) == 3
     assert get_multiplier(150.0, 400.0) == 2
     assert get_multiplier(500.0, 400.0) == 1     # the old code returned 0 here
@@ -110,7 +110,7 @@ def test_line_break_rules_come_from_parameters():
 
 
 def test_key_quantization_respects_min_offset():
-    from modules.Audio.key_detector import get_allowed_notes_for_key, quantize_note_to_key
+    from modules.Midi.key_quantize import get_allowed_notes_for_key, quantize_note_to_key
     allowed = get_allowed_notes_for_key("C", "major")
     assert quantize_note_to_key("C#4", allowed, 61.0, 0.0) in ("C4", "D4")
     # a confidently sung C# (pitch hint right on it) stays when the offset rule demands more evidence

@@ -22,7 +22,7 @@ def trim_overlaps(items):
 
 
 def apply_game_pitches(midi_segments, game_pitches, allowed_notes, key_min_offset: float):
-    from modules.Audio.key_detector import quantize_note_to_key
+    from modules.Midi.key_quantize import quantize_note_to_key
     if len(midi_segments) != len(game_pitches):
         raise ValueError(f"GAME pitches ({len(game_pitches)}) and notes ({len(midi_segments)}) don't line up: "
                          "notes.game_pitch must follow notes.from_pitch on the same syllables")

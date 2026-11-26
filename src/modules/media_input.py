@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 
 from modules import os_helper
-from modules.ProcessData import MediaInfo
+from modules.media_info import MediaInfo
 
 log = logging.getLogger("ultrasinger.input")
 

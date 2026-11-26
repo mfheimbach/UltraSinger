@@ -50,12 +50,6 @@ def language_check(language="en") -> str | None:
     return lang_region
 
 
-def contains_punctuation(word: str) -> bool:
-    """Check if word contains punctuation"""
-
-    return any(elem in word for elem in string.punctuation)
-
-
 def __clean_word(word: str):
     """Remove punctuation from word"""
     cleaned_string = ""

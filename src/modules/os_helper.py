@@ -33,16 +33,6 @@ def rename(original: str, target: str) -> None:
     os.rename(original, target)
 
 
-def current_executor_path() -> str:
-    """Current executor path"""
-    return os.getcwd()
-
-
-def path_join(path1: str, path2: str) -> str:
-    """Joins two paths together"""
-    return os.path.join(path1, path2)
-
-
 def check_file_exists(file_path: str) -> bool:
     """Checks if a file exists."""
     return os.path.isfile(file_path)
@@ -51,11 +41,6 @@ def check_file_exists(file_path: str) -> bool:
 def check_if_folder_exists(song_output: str) -> bool:
     """Checks if a folder exists."""
     return os.path.isdir(song_output)
-
-
-def remove_folder(cache_path):
-    """Removes a folder."""
-    shutil.rmtree(cache_path)
 
 
 FILENAME_REPLACEMENTS = (('?:"', ""), ("<", "("), (">", ")"), ("/\\|*", "-"))

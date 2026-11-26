@@ -96,7 +96,7 @@ def split_syllables_by_contour(
     Each remaining run becomes a sub-segment ("~" continuation like the grid split)."""
     import numpy as np
     from scipy.signal import medfilt
-    from modules.Midi.midi_creator import estimate_tuning_offset
+    from modules.Pitcher.tuning import estimate_tuning_offset
 
     times = np.asarray(pitched_data.times, dtype=float)
     freqs = np.asarray(pitched_data.frequencies, dtype=float)

@@ -5,7 +5,7 @@ import unittest
 import librosa
 from packaging import version
 from unittest.mock import patch, mock_open
-from src.modules.Ultrastar.ultrastar_writer import create_ultrastar_txt, format_separated_string
+from src.modules.Ultrastar.writer import create_ultrastar_txt, format_separated_string
 from src.modules.Ultrastar.line_breaks import pause_threshold
 
 
