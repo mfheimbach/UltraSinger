@@ -6,11 +6,14 @@
   `eval/splits/singstar_split.csv` (grouped by artist, stratified by language x style, one song per
   artist in test). Test is scored at milestones only.
 - `bench/`: quick bench, 12 x 30 s windows from 12 train artists (`eval/splits/make_quick_bench.py`)
+- `selection/`: 36 windows from other train songs (disjoint from bench); tuning holdout for bench runs
 - `bench_full/`: the same 12 songs at full length (confirm tier)
 
 ## Work dirs (not in git)
 - `eval_work_ng/`: current work dir. `cache/<song>/` holds the pipeline stage caches
-  (`stage_<name>_<key>.pkl` + `.lineage.json`), `runs/<name>/` the results.
+  (`stage_<name>_<key>.pkl` + `.lineage.json`), `runs/<name>/` the results, `archive/` old runs (tar).
+  Clean the cache with `PYTHONPATH=src python -m pipeline.cache_gc eval_work_ng/cache --older-than-hours 48
+  [--delete]` (separation folders are kept).
 - `eval/archive/all_runs_metrics_*.csv.gz`: metrics of every run before the SingStar switch.
 
 ## Running
@@ -23,8 +26,9 @@
 - BPM jitter (`--jitter`) is no longer needed: with GAME segmentation it moves the bench mean by 0.002.
 - Strict contracts: `ULTRASINGER_STRICT=1` turns contract warnings into errors.
 
-## Baseline (quick bench, preset `bench`, 2026-11-25)
-usdx_medium 0.609, usdx_hard 0.444, WER 0.358, line F1 0.463. Noise floor: demucs seeds alone move
+## Baseline (quick bench, preset `bench`, run `modular1`, 2026-11-26; unchanged since 2026-11-25)
+usdx_medium 0.609, usdx_hard 0.444, WER 0.358 (bench uses the pause rule: line F1 0.463 with planned breaks).
+Noise SD per engine (composite objective): `tune/noise.yaml`. Noise floor: demucs seeds alone move
 the bench mean by ~0.02 (0.609 / 0.622 / 0.648); compare configs on the same seed, decide on
 bigger sets.
 
