@@ -657,6 +657,11 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
     expensive, cheap, tail_start = split_dims(base_p, dims, float(spec["cost"]["cheap_seconds"]),
                                               float(spec["cost"]["unknown_seconds"]))
     table = load_noise(spec["data"]["train"])
+    if not table:
+        import logging
+        logging.getLogger("ultrasinger.tune").warning(
+            f"FALLBACK: no noise levels for song set {spec['data']['train']!r} in tune/noise.yaml; every group "
+            f"uses min_gain only (measure them, or check the path matches the key there)")
     noise_sd, noise_src = group_noise(base_p, dims, table, spec["objective"])
     threshold = min_gain(spec, noise_sd)
     # search steps may be smaller than the adoption threshold: several sub-noise steps can add up to

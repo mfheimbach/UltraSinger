@@ -19,8 +19,12 @@ uv pip install -r eval/requirements.txt   # mir_eval, jiwer, optuna
   curl -LO https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-small-onnx.zip
   unzip GAME-1.0.3-small-onnx.zip && rm GAME-1.0.3-small-onnx.zip && cd -
   ```
-- **Data:** unpack `ultrasinger_eval_windows.tar` in the repo root. That gives `eval_singstar/bench` (12 windows) and
-  `eval_singstar/selection` (36 windows, the holdout). The folder is gitignored and must never be pushed.
+- **Data** (private, never in git): unpack `ultrasinger_eval_windows.tar` outside the repo and link it in, so the
+  paths in the specs (`eval_singstar/bench`, `eval_singstar/selection`) work unchanged:
+  ```bash
+  mkdir -p ../data && tar -xf ultrasinger_eval_windows.tar -C ../data
+  ln -s "$(realpath ../data/eval_singstar)" eval_singstar     # gitignored (folder or link)
+  ```
 
 ## 2. Preflight
 
