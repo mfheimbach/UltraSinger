@@ -13,13 +13,10 @@ eval_singstar/bench:
     objective: &obj
       sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
       multiply: [lyrics_acc]
-  transcribe.whisper[large-v3-turbo]:
-    sd: 0.024
-    n: 6
-    how: "ESTIMATE: old placebo SD 0.0139 (prepare silence muting -50/-60 dB x 25/50/100 ms) scaled by the
-      demucs ratio 0.0515/0.0298; measure it"
-    date: 2026-11-26
-    objective: *obj
+  # transcribe.whisper: not chaotic for small input changes. Placebo 2026-11-26 (prepare.denoise_reduction_db
+  # 68/69/70/71, runs wnoise_*): 0 of 12 transcripts changed, objective identical (one window's notes
+  # changed via GAME; its lyrics factor is 0). No entry, so groups before Whisper fall through to the next
+  # chaotic module (GAME). The earlier 0.0139 "placebo" (silence muting -50/-60 dB) was a real effect.
   segment.game[GAME-1.0.3-small-onnx]:
     sd: 0.0038
     n: 3
