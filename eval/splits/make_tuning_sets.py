@@ -1,16 +1,20 @@
-"""Tuning sets from the SingStar train split: one 30 s window per train song.
+"""Tuning sets from the SingStar train split: every train song, full length.
 
-- tune_train: the windows of ~75% of the train artist groups (what the tuner searches on)
+- tune_train: the songs of ~75% of the train artist groups (what the tuner searches on)
 - tune_holdout: the other ~25% (artist-disjoint; scored once at the end of a tuning run)
 - test, reserve, hard and excluded songs are never touched
-- window: random line start whose 30 s window is at least 40% sung (as for the bench)
-- stable: group side and window are drawn per group / per song from a fixed seed, so adding songs
+- full songs (default): each entry is a link to the song folder in raw/, nothing is copied. Full songs
+  are what the pipeline is for: lyrics lookup, whole-song line breaks, key and punctuation context
+  only work on them, and a song's score isn't one random 30 s of it
+- --windows: one random 30 s window per song (>= 40% sung) instead, written as audio + chart; for
+  CPU-only machines (about 7x less audio)
+- stable: group side (and window) are drawn per group / per song from a fixed seed, so adding songs
   later doesn't move anything already drawn
 
-Audio comes from eval_singstar/raw/<edition>/<song>/ (on Mo's machine a link to the collection).
+Songs come from eval_singstar/raw/<edition>/<song>/ (on Mo's machine a link to the collection).
 
     python eval/splits/make_tuning_sets.py --check     # list songs missing under raw/
-    python eval/splits/make_tuning_sets.py             # write eval_singstar/tune_train, tune_holdout
+    python eval/splits/make_tuning_sets.py             # eval_singstar/tune_train, tune_holdout (links)
 """
 import argparse
 import csv
@@ -48,6 +52,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="only list train songs missing under raw/")
     ap.add_argument("--skip-missing", action="store_true", help="skip songs not under raw/ (testing)")
+    ap.add_argument("--windows", action="store_true", help="30 s windows instead of full songs")
     args = ap.parse_args()
     rows = [r for r in csv.DictReader(open(os.path.join(HERE, "singstar_split.csv"), encoding="utf-8"))
             if r["split"] == "train"]
@@ -65,6 +70,13 @@ def main():
         if r in missing:
             continue
         side = "tune_holdout" if random.Random(f"{SEED}:group:{r['group']}").random() < HOLDOUT_SHARE else "tune_train"
+        src = os.path.join(RAW, r["edition"], r["song"])
+        if not args.windows:
+            link = os.path.join(out[side], r["song"])
+            if not os.path.lexists(link):
+                os.symlink(os.path.relpath(src, out[side]), link)
+            counts[side] += 1
+            continue
         song = usdx.read(usdx.find_song_txt(os.path.join(RAW, r["edition"], r["song"])))
         options = window_options(song)
         if not options:

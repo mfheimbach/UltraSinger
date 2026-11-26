@@ -6,12 +6,12 @@
 # nothing). Expensive groups (before GAME) use value lists, cheap groups (note stages, line breaks,
 # writer) are searched jointly with TPE.
 name: staged_singstar_full
-base: bench
-overrides: [notes.line_breaks.use=notes.line_breaks]   # tune planned line breaks too (bench uses the pause rule)
+base: best          # full songs: the whole inference machine, incl. lyrics lookup + correction
+overrides: []
 data:
-  train: eval_singstar/tune_train       # one window per song, ~75% of the train artists (make_tuning_sets.py)
+  train: eval_singstar/tune_train       # full songs of ~75% of the train artists (make_tuning_sets.py)
   holdout: eval_singstar/tune_holdout   # the other ~25%, artist-disjoint; scored once at the end
-  folds: 5
+  folds: 3
   gt_language: true
 objective:          # per song: weighted sum x (floor + (1 - floor) x factor), mean over songs
   sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
@@ -22,9 +22,10 @@ step_sigma: 0.25    # search steps (patience, coordinate moves): a quarter SD
 min_gain: 0.001     # absolute floor (scale of the objective)
 fold_gate: true     # inside CV folds, leave the base only for gains beyond the threshold too
 effect_probe: true  # drop dimensions that change no chart (masked by a later step)
+workers: auto       # parallel song tails for cheap groups (CPU cores - 2, at most 8); 1 = off
 sampler: auto       # grid when everything is discrete and fits the budget, else TPE
 trials: 50          # per group unless the group sets its own
-stop: {patience: 30}   # search ends at trials, or no gain > min gain for 30 trials, whichever first
+stop: {patience: 20}   # search ends at trials, or no gain > min gain for 30 trials, whichever first
 coordinate_points: 7   # values per continuous dimension for coordinate descent
 cost: {cheap_seconds: 3.0, unknown_seconds: 1.0}   # rerun cost per 30 s audio that counts as cheap
 stages:
@@ -54,6 +55,17 @@ stages:
   - name: numbers as words
     search:
       transcribe.whisper.keep_numbers: [false, true]
+  - name: lyrics correction on/off
+    search:
+      words.correct_lyrics.enabled: [true, false]
+  - name: lyrics lookup
+    search:
+      lyrics.lrclib.max_duration_diff: [5.0, 15.0, 30.0]
+      lyrics.lrclib.max_candidates: [1, 3, 5]
+  - name: lyrics correction
+    search:
+      words.correct_lyrics.min_match: [0.3, 0.4, 0.5, 0.6]
+      words.correct_lyrics.max_length_ratio: [1.5, 2.0, 3.0]
   - name: untimed words (fallback)
     search:
       words.place_untimed.gap: [0.05, 0.1, 0.2]
@@ -91,7 +103,7 @@ stages:
     search:
       key.analysis_seconds: [10.0, 20.0, 60.0]
   - name: notes
-    trials: 200
+    trials: 80
     search:
       notes.from_pitch.method: [chroma_mode, median, mode]
       notes.from_pitch.conf_threshold: {low: 0.1, high: 0.7}
@@ -121,7 +133,7 @@ stages:
       notes.calibrate.end_extension: {low: -0.1, high: 0.3}
       notes.calibrate.min_len: {low: 0.0, high: 0.1}
   - name: line breaks
-    trials: 150
+    trials: 60
     search:
       notes.line_breaks.intercept: {low: 0.0, high: 3.0}
       notes.line_breaks.w_pause: {low: 0.2, high: 1.5}

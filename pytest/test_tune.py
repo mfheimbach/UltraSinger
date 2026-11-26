@@ -22,7 +22,7 @@ from pipeline.core import load_preset  # noqa: E402
 from pipeline.run import preset_path  # noqa: E402
 
 SPEC = {"name": "t", "base": "bench", "data": {"train": "x", "holdout": "y", "folds": 3, "gt_language": True},
-        "objective": {"sum": {"usdx_medium": 1.0}}, "min_gain": 0.001, "noise_sigma": 1.0, "step_sigma": 0.25, "fold_gate": True, "effect_probe": False,
+        "objective": {"sum": {"usdx_medium": 1.0}}, "min_gain": 0.001, "noise_sigma": 1.0, "step_sigma": 0.25, "fold_gate": True, "effect_probe": False, "workers": 1,
         "sampler": "auto", "trials": 40, "stop": {}, "coordinate_points": 5,
         "cost": {"cheap_seconds": 3.0, "unknown_seconds": 1.0}, "search": {"notes.calibrate.offset": [0.0]}}
 
@@ -48,6 +48,9 @@ class FakeEvaluator:
         self.last_chart = getattr(self, "last_chart", {})
         self.last_chart[song] = repr(round(self.f(cfg), 9))
         return {"v": self.f(cfg) + 0.01 * (hash(song) % 7)}
+
+    def score_many(self, names, exp_ov, cheap_ov, tail_start):
+        return [self.score(n, exp_ov, cheap_ov, tail_start) for n in names]
 
     def objective(self, per_song):
         return float(np.mean([r["v"] for r in per_song]))
@@ -227,3 +230,27 @@ def test_effect_probe_drops_dimensions_that_change_nothing(monkeypatch):
     dead = tune.probe_effect(ev, ["a"], dims, [], dims, 0)
     assert "notes.calibrate.offset" not in dead
     assert {"notes.calibrate.end_extension", "notes.merge.slides", "notes.merge.slide_max_semitones"} <= set(dead)
+
+
+def test_search_resumes_after_a_crash(tmp_path, monkeypatch):
+    """A search killed mid-way continues from its stored trials instead of starting over."""
+    monkeypatch.setattr(tune, "STORAGE", "sqlite:///" + str(tmp_path / "studies.db"))
+    dims = tune.parse_search({"notes.calibrate.offset": {"low": -0.2, "high": 0.1}})
+    def flaky(cfg):
+        if len(ev.calls) == 7:                        # the 7th evaluation crashes
+            raise RuntimeError("simulated crash")
+        return -abs(float(cfg["notes.calibrate.offset"]) + 0.05)
+
+    ev = FakeEvaluator(flaky)
+    with pytest.raises(RuntimeError):
+        tune.tune(ev, ["a"], [], dims, 0, 12, 0, log=lambda *_: None, sampler_name="tpe", stop={},
+                  study_key="g-all")
+    done_before = 6                                   # trials finished before the crash
+    ev2 = FakeEvaluator(lambda cfg: -abs(float(cfg["notes.calibrate.offset"]) + 0.05))
+    _, _, rows = tune.tune(ev2, ["a"], [], dims, 0, 12, 0, log=lambda *_: None, sampler_name="tpe", stop={},
+                           study_key="g-all")
+    assert len(ev2.calls) == 12 - done_before          # only the missing trials ran
+    assert len(rows) == 12
+    _, _, rows3 = tune.tune(ev2, ["a"], [], dims, 0, 12, 0, log=lambda *_: None, sampler_name="tpe", stop={},
+                            study_key="g-all")
+    assert len(ev2.calls) == 12 - done_before          # finished study: nothing reruns

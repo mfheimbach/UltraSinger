@@ -406,9 +406,16 @@ class Pipeline:
             from pipeline.log import get as get_logger, stage_scope
             key = os.path.basename(path)[:-4] if path else None
             fresh = st.id in ctx.extra.get("fresh", ())
+            result = None
             if path and os.path.exists(path) and not fresh:
                 with open(path, "rb") as f:
                     result = pickle.load(f)
+                missing = _missing_files(result)
+                if missing:   # a file the cached result points to was cleaned up: recompute
+                    get_logger(f"stage.{st.id}").info(f"{st.id}: cached result points to missing {missing[0]}; "
+                                                      f"recomputing", extra={"stage": st.id, "event": "cache_stale"})
+                    result = None
+            if result is not None:
                 get_logger(f"stage.{st.id}").info(f"{st.id}: cached",
                                                   extra={"stage": st.id, "event": "cached", "cache_key": key})
                 if not st.hash_modules:
@@ -453,6 +460,14 @@ class Pipeline:
                         order.remove(art)
                     order.append(art)
         return store
+
+
+def _missing_files(result) -> list[str]:
+    """Absolute file paths in a stage result (top-level string values) that no longer exist."""
+    if not isinstance(result, dict):
+        return []
+    return [v for v in result.values() if isinstance(v, str) and os.path.isabs(v)
+            and os.path.splitext(v)[1] and not os.path.exists(v)]
 
 
 def _atomic_pickle(path: str, obj) -> None:

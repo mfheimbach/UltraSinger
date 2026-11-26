@@ -119,7 +119,7 @@ def main():
                   " missing: download GAME-1.0.3-small-onnx from github.com/openvpi/GAME releases and unpack there"))
     os.makedirs(args.work, exist_ok=True)
     free = shutil.disk_usage(args.work).free / 1e9
-    check("disk space in work dir", free > 20, f"{free:.0f} GB free (cache grows to ~10-15 GB)")
+    check("disk space in work dir", free > 100, f"{free:.0f} GB free (full songs: ~100 GB peak, variants pruned per group)")
     check("models downloaded on first use", None, "Whisper large-v3-turbo, wav2vec2 aligners, demucs, RMVPE, "
           "punctuation model (~5 GB total, Hugging Face / torch hub)")
 

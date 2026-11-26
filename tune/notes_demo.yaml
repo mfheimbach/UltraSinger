@@ -13,7 +13,8 @@ min_gain: 0.001
 noise_sigma: 1.0
 step_sigma: 0.25
 fold_gate: true
-effect_probe: true   # drop dimensions that change no chart (masked by a later step)
+effect_probe: true  # drop dimensions that change no chart (masked by a later step)
+workers: auto       # parallel song tails for cheap groups (CPU cores - 2, at most 8); 1 = off
 sampler: auto
 stop: {patience: 30}
 coordinate_points: 7

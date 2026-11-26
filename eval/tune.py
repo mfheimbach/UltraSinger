@@ -82,7 +82,7 @@ BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
 REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective.sum",
-            "min_gain", "noise_sigma", "step_sigma", "fold_gate", "effect_probe", "sampler", "trials", "stop", "coordinate_points",
+            "min_gain", "noise_sigma", "step_sigma", "fold_gate", "workers", "effect_probe", "sampler", "trials", "stop", "coordinate_points",
             "cost.cheap_seconds", "cost.unknown_seconds"]
 
 
@@ -221,6 +221,48 @@ def base_config(ev: "Evaluator", song: str, dims: list[Dim]) -> dict:
 
 
 DEVICE = "cpu"        # set by main (--device)
+POOL = None           # SongPool when spec["workers"] > 1
+STORAGE = None        # optuna storage URL (SQLite in the run's out dir): searches survive a crash
+
+
+class SongPool:
+    """Worker processes that run song tails in parallel (cheap groups: notes, line breaks, writer).
+    Each song always goes to the same worker, so its prefix is loaded from the disk cache once per
+    worker and then reused. Workers run on the CPU (the GPU stays with the main process); they only
+    read prefixes the main process has already written."""
+
+    def __init__(self, n: int, spec: dict, work: str, songs: list[tuple[str, str]]):
+        import concurrent.futures as cf
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        self.order = {name: i for i, (name, _) in enumerate(songs)}
+        self.execs = [cf.ProcessPoolExecutor(1, mp_context=ctx, initializer=_worker_init,
+                                             initargs=(spec, work, songs)) for _ in range(n)]
+
+    def score(self, names, base_overrides, cheap_ov, tail_start):
+        futs = [self.execs[self.order[n] % len(self.execs)].submit(_worker_score, n, list(base_overrides),
+                                                                   list(cheap_ov), tail_start) for n in names]
+        return [f.result() for f in futs]
+
+    def close(self):
+        for e in self.execs:
+            e.shutdown(cancel_futures=True)
+
+
+_W = None
+
+
+def _worker_init(spec, work, songs):
+    global _W, DEVICE
+    DEVICE = "cpu"
+    plog.setup(verbose=False)
+    _W = Evaluator(spec, work, songs)
+
+
+def _worker_score(name, base_overrides, cheap_ov, tail_start):
+    _W.base_overrides = base_overrides
+    res = _W.score(name, (), cheap_ov, tail_start)
+    return res, _W.last_chart[name]
 _RECORDS: list | None = None
 
 
@@ -235,6 +277,37 @@ def step_cost(stage_name: str) -> float | None:
     if not recs:
         return None
     return float(np.median([r["seconds"] / r["audio_seconds"] * 30.0 for r in recs[-50:]]))
+
+
+def print_eta(ev: "Evaluator", names: list[str], groups: list[dict], spec: dict, folds: int, workers: int) -> None:
+    """Rough run time from this machine's runtime records: expensive configs x rerun cost, plus cheap
+    trials x (folds + 1) searches x tail cost / workers. Printed once, before the first group."""
+    import soundfile as sf
+    audio = 0.0
+    for n in names:
+        try:
+            audio += sf.info(ev.gt[n].audio_path()).duration
+        except Exception:  # noqa: BLE001  (formats soundfile can't read: assume 3.5 min)
+            audio += 210.0
+    p = ev.pipeline([], names[0])
+    ids = [st.id for st in p.stages]
+    cost = [step_cost(st.name) or 0.0 for st in p.stages]
+    per30 = audio / 30.0
+    total = 0.0
+    for g in groups:
+        dims = parse_search(g["search"])
+        exp, cheap, tail = split_dims(p, dims, float(spec["cost"]["cheap_seconds"]),
+                                      float(spec["cost"]["unknown_seconds"]))
+        trials = int(g.get("trials") or spec["trials"])
+        if exp:
+            first = min(ids.index(d.step) for d in exp if d.step in ids)
+            n_cfg = len(valid_configs(exp) or range(trials))
+            total += n_cfg * sum(cost[first:]) * per30
+        if cheap:
+            tail_cost = sum(cost[tail:]) + 0.3          # + metrics per 30 s audio (rough)
+            total += trials * (folds + 1) * 0.8 * tail_cost * per30 / max(1, workers)
+    print(f"ETA (rough, from runtime records): {total / 3600:.1f} h for {len(names)} songs, "
+          f"{audio / 60:.0f} min of audio", flush=True)
 
 
 def warm_up(ev: "Evaluator", names: list[str]) -> None:
@@ -364,6 +437,16 @@ class Evaluator:
                 total *= floor + (1.0 - floor) * d[k]
         return float(total)
 
+    def score_many(self, names: list[str], exp_ov: tuple, cheap_ov: list, tail_start: int) -> list[dict]:
+        """score() for several songs: in parallel worker processes when a pool is running and the call
+        needs no expensive overrides (the base prefixes are on disk then), else here, in order."""
+        if POOL is not None and not exp_ov:
+            out = POOL.score(names, self.base_overrides, cheap_ov, tail_start)
+            for n, (_, chart) in zip(names, out):
+                self.last_chart[n] = chart
+            return [res for res, _ in out]
+        return [self.score(n, exp_ov, cheap_ov, tail_start) for n in names]
+
     def report_floored(self, names: list[str], tail_start_of) -> list[str]:
         """Songs whose factor metric is near zero on the base config (they count at floor weight):
         logged as a warning and returned for the report."""
@@ -411,7 +494,7 @@ def _evaluate(ev, songs, dims, expensive, cheap, tail_start, cfg) -> float:
     keys = {d.key for d in active(dims, cfg)}
     exp_ov = tuple(d.override(cfg[d.key]) for d in expensive if d.key in keys)
     cheap_ov = [d.override(cfg[d.key]) for d in cheap if d.key in keys]
-    return ev.objective([ev.score(s, exp_ov, cheap_ov, tail_start) for s in songs])
+    return ev.objective(ev.score_many(songs, exp_ov, cheap_ov, tail_start))
 
 
 def to_overrides(dims: list[Dim], cfg: dict) -> list[str]:
@@ -419,11 +502,14 @@ def to_overrides(dims: list[Dim], cfg: dict) -> list[str]:
 
 
 def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim], tail_start: int,
-         trials: int, seed: int, log=print, sampler_name: str = "auto", stop: dict | None = None):
+         trials: int, seed: int, log=print, sampler_name: str = "auto", stop: dict | None = None,
+         study_key: str | None = None):
     """Search the dimensions on these songs. sampler_name: auto (grid when everything is discrete and
     fits the budget, else TPE) | grid | tpe | random | cmaes | coordinate. The search ends at whichever
     comes first: `trials` evaluations; no improvement > stop["tol"] for stop["patience"] trials;
     stop["max_seconds"] wall time. Nested dimensions are only sampled while their parent value holds.
+    With STORAGE set and a study_key, trials are stored as they finish (SQLite) and a rerun with the
+    same key continues the search instead of starting over (resume after a crash).
     Returns (study or None, overrides of the best configuration, rows)."""
     import optuna
     import warnings
@@ -461,16 +547,33 @@ def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim]
     else:
         sampler = optuna.samplers.TPESampler(seed=seed, multivariate=True, group=True,
                                              warn_independent_sampling=False)
-    study = optuna.create_study(direction="maximize", sampler=sampler)
+    if STORAGE and study_key:
+        study = optuna.create_study(direction="maximize", sampler=sampler, storage=STORAGE,
+                                    study_name=study_key, load_if_exists=True)
+    else:
+        study = optuna.create_study(direction="maximize", sampler=sampler)
+    TS = optuna.trial.TrialState
+    for t in study.get_trials(deepcopy=False, states=(TS.RUNNING, TS.WAITING)):
+        if t.state == TS.RUNNING:   # interrupted by a crash: doesn't count, its config may be retried
+            study._storage.set_trial_state_values(t._trial_id, TS.FAIL)
+    done = [t for t in study.get_trials(deepcopy=False, states=(TS.COMPLETE,))]
+    for t in done:
+        rows.append({"trial": t.number, "objective": t.value, **t.user_attrs["cfg"]})
+    if study.user_attrs.get("finished"):
+        return study, to_overrides(dims, study.best_trial.user_attrs["cfg"]), rows
     # trial 0 = the base preset (so "tuned" can never be worse than base on the tuning songs)
     base = base_config(ev, songs[0], dims)
-    if not use_grid and {d.key for d in active(dims, base)} <= set(base):
+    if not done and not use_grid and {d.key for d in active(dims, base)} <= set(base):
         study.enqueue_trial({k: v for k, v in base.items() if k in {d.key for d in active(dims, base)}})
     t0 = time.time()
     callbacks = [lambda s, t: log(f"  trial {t.number:3d}  {t.value:.4f}  best {s.best_value:.4f}"
                                   f"  ({time.time() - t0:.0f}s)") if t.number % 10 == 0 else None]
     if stop:
         hist = []
+        best = -np.inf
+        for t in sorted(done, key=lambda t: t.number):    # resumed: patience counts the stored trials
+            best = max(best, t.value)
+            hist.append(best)
 
         def early_stop(st, t):
             hist.append(st.best_value)
@@ -480,7 +583,12 @@ def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim]
             if stop.get("max_seconds") and time.time() - t0 > float(stop["max_seconds"]):
                 st.stop()
         callbacks.append(early_stop)
-    study.optimize(objective, n_trials=trials, callbacks=callbacks)
+    k = stop.get("patience") if stop else None
+    stalled = bool(k) and len(hist) > k and hist[-1] - hist[-1 - k] <= float(stop["tol"])
+    if len(done) < trials and not stalled:
+        study.optimize(objective, n_trials=trials - len(done), callbacks=callbacks)
+    if STORAGE and study_key:
+        study.set_user_attr("finished", True)
     return study, to_overrides(dims, study.best_trial.user_attrs["cfg"]), rows
 
 
@@ -589,7 +697,7 @@ def per_song_objective(ev, songs, overrides, expensive, cheap, tail_start) -> np
     exp_keys = {d.step + "." + d.attr for d in expensive}
     exp_ov = tuple(o for o in overrides if o.split("=", 1)[0] in exp_keys)
     cheap_ov = [o for o in overrides if o.split("=", 1)[0] not in exp_keys]
-    return np.array([ev.objective([ev.score(s, exp_ov, cheap_ov, tail_start)]) for s in songs])
+    return np.array([ev.objective([d]) for d in ev.score_many(songs, exp_ov, cheap_ov, tail_start)])
 
 
 def artist_groups(songs: list[str]) -> dict[str, str]:
@@ -653,6 +761,10 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
     With spec: the group's smallest relevant gain (min_gain) sets the search tolerance (unless the
     group's stop gives its own tol) and is returned for the adoption rule."""
     dims = parse_search(search)
+    import hashlib
+    # stable identity of this group's searches (resume): group, songs, start point, search space
+    gkey = hashlib.sha1(json.dumps([title, sorted(names), ev.base_overrides, repr(search), sampler, trials, seed],
+                                   default=str).encode()).hexdigest()[:12]
     base_p = ev.pipeline([], names[0])
     expensive, cheap, tail_start = split_dims(base_p, dims, float(spec["cost"]["cheap_seconds"]),
                                               float(spec["cost"]["unknown_seconds"]))
@@ -701,7 +813,7 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
             if not te or not tr:
                 continue
             _, ov, _ = tune(ev, tr, expensive, cheap, tail_start, trials, seed + k, log=lambda *_: None,
-                            sampler_name=sampler, stop=stop)
+                            sampler_name=sampler, stop=stop, study_key=f"{gkey}-fold{k}")
             # same decision rule inside the fold: leave the base only if the training gain beats the
             # noise (scaled from the song set to this fold's size), else a noise-picked winner is scored
             if spec["fold_gate"]:
@@ -722,7 +834,7 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
                    f"{int((d > 1e-9).sum())} better, {int((d < -1e-9).sum())} worse of {len(d)})"]
         print("  " + report[-1])
     study, best_ov, rows = tune(ev, names, expensive, cheap, tail_start, trials, seed, log=lambda *_: None,
-                                sampler_name=sampler, stop=stop)
+                                sampler_name=sampler, stop=stop, study_key=f"{gkey}-all")
     base_v = per_song_objective(ev, names, [], expensive, cheap, tail_start)
     tuned_v = per_song_objective(ev, names, best_ov, expensive, cheap, tail_start)
     res.update(overrides=best_ov, base=float(base_v.mean()), tuned=float(tuned_v.mean()), rows=rows,
@@ -799,6 +911,10 @@ def main():
     ap.add_argument("--race", help="compare search methods on one group, e.g. tpe,cmaes,random,coordinate")
     ap.add_argument("--group", help="with --race: the group (name from stages) to race on")
     ap.add_argument("--start", help="with --race: overrides to start from (a preset.yaml written by a tuning run)")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue the run in tune/out/<name>/ where it stopped (or start it if there is none): "
+                         "finished groups are skipped, a group in progress continues its stored trials")
+    ap.add_argument("--fresh", action="store_true", help="discard an earlier run of this spec and start over")
     ap.add_argument("--from-group", type=int, default=1,
                     help="resume: continue the run in tune/out/<name>/ at this group number (report and trials "
                          "are appended to, overrides taken from its preset.yaml)")
@@ -817,7 +933,19 @@ def main():
     data = spec["data"]
     folds = int(data["folds"])
     out_dir = os.path.join(ROOT, "tune", "out", spec["name"])
+    progress_path = os.path.join(out_dir, "progress.json")
+    if args.fresh and os.path.isdir(out_dir):
+        import shutil
+        shutil.rmtree(out_dir)
     os.makedirs(out_dir, exist_ok=True)
+    if not args.race and os.path.exists(progress_path) and not args.resume and args.from_group == 1:
+        raise SystemExit(f"{out_dir} holds an earlier run: --resume to continue it, --fresh to start over")
+    if args.resume and os.path.exists(progress_path):
+        with open(progress_path, encoding="utf-8") as f:
+            args.from_group = json.load(f)["groups_done"] + 1
+        print(f"resuming at group {args.from_group}")
+    global STORAGE
+    STORAGE = "sqlite:///" + os.path.join(out_dir, "studies.db")
     train = discover(data["train"], None)
     holdout = discover(data["holdout"], None)
     overlap = {n for n, _ in train} & {n for n, _ in holdout}
@@ -827,6 +955,12 @@ def main():
     names = [n for n, _ in train]
     groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
     warm_up(ev, names)
+    global POOL
+    n_workers = spec["workers"] if spec["workers"] != "auto" else max(1, min(8, (os.cpu_count() or 2) - 2))
+    if int(n_workers) > 1:
+        POOL = SongPool(int(n_workers), spec, args.work, train + holdout)
+        print(f"{n_workers} worker processes for song tails")
+    print_eta(ev, names, groups, spec, folds, int(n_workers))
     floored = ev.report_floored(names, lambda n: _write_index(ev, n)) if ev.factors else []
     if args.race:
         return race(ev, names, groups, args, spec, folds, out_dir)
@@ -859,7 +993,17 @@ def main():
         else:
             report += [f"-> not adopted (gain {gain:+.4f} <= {res['min_gain']:.4f})", ""]
         print("  " + report[-2])
+        exp_g, _, _ = split_dims(ev.pipeline([], names[0]), parse_search(group["search"]),
+                                 float(spec["cost"]["cheap_seconds"]), float(spec["cost"]["unknown_seconds"]))
+        if exp_g:   # full songs: variants of expensive groups would fill the disk
+            try:
+                print(f"  pruned {prune_side_files(ev, names):.1f} GB of audio files of configurations not adopted")
+            except Exception as e:  # noqa: BLE001  (cleanup must never stop the run)
+                import logging
+                logging.getLogger("ultrasinger.tune").warning(f"FALLBACK: pruning failed ({e}); disk use keeps growing")
         write_outputs(out_dir, spec, ev.base_overrides, all_rows, report)
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump({"groups_done": gi + 1, "of": len(groups)}, f)
 
     final = ev.base_overrides
     report += ["## Result", "", f"overrides on top of `{spec['base']}`:", "", "```"] + \
@@ -875,6 +1019,8 @@ def main():
     write_outputs(out_dir, spec, final, all_rows, report)
     print("\n".join(report))
     print(f"\nwrote {out_dir}/report.md, preset.yaml, trials.csv")
+    if POOL is not None:
+        POOL.close()
 
 
 def race(ev, names, groups, args, spec, folds, out_dir):
@@ -899,6 +1045,32 @@ def race(ev, names, groups, args, spec, folds, out_dir):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(report) + "\n")
     print("\n".join(report) + f"\n\nwrote {path}")
+
+
+RUN_T0 = time.time()
+
+
+def prune_side_files(ev: Evaluator, names: list[str]) -> float:
+    """After an expensive group: delete audio files this run wrote for configurations that were not
+    adopted (separation stems, prepared audio, intermediates). Kept: everything the current base's
+    prefixes point to, everything older than this run, stage pickles and sidecars. A cached result
+    whose file is gone is recomputed (core._missing_files). Returns GB freed."""
+    freed = 0
+    for n in names:
+        store = ev.prefix(n, (), _write_index(ev, n))
+        keep = {os.path.realpath(v) for v in store.values() if isinstance(v, str) and os.path.isabs(v)}
+        cache = os.path.abspath(os.path.join(ev.work, "cache", slug(n)))
+        for root, dirs, files in os.walk(cache, topdown=False):
+            for f in files:
+                path = os.path.join(root, f)
+                if f.endswith((".pkl", ".json")) or os.path.realpath(path) in keep:
+                    continue
+                if os.path.getmtime(path) >= RUN_T0:
+                    freed += os.path.getsize(path)
+                    os.remove(path)
+            if root != cache and not os.listdir(root):
+                os.rmdir(root)
+    return freed / 1e9
 
 
 def _write_index(ev: Evaluator, name: str) -> int:
