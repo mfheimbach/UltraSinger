@@ -5,7 +5,8 @@ Three families of metrics:
 * frame-level (10 ms grid): voicing and pitch, robust to different note
   segmentation. Pitch metrics are chroma based (octave ignored), as in
   USDX scoring and because charts often move the singer's octave.
-* note-level: onset matching with a tolerance.
+* note-level: onset matching with a tolerance; start and end scores (starts matched to starts,
+  ends to ends, truncated quadratic loss, see boundary_score).
 * lyrics: word and character error rate.
 
 `usdx_medium` approximates what a singer would score on the real chart
@@ -23,6 +24,7 @@ import numpy as np
 from usdx import Song
 
 HOP = 0.01
+BOUNDARY_TAU = 0.1   # s: boundary error at which a start/end counts as fully wrong (quadratic below)
 
 
 def _grid(songs: list[Song]) -> np.ndarray:
@@ -74,6 +76,12 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
     weight = np.where(gg, 2.0, 1.0)
     usdx_hits = (gp & (dist <= 1)) * weight
     usdx_total = gp * weight
+    # the other direction: of our note time, how much lies on chart notes with the right pitch (+-1)?
+    # usdx alone is recall-like: note time beyond the chart costs nothing, and a singer has to sing it
+    pdist = np.full(t.size, np.inf)
+    on = ~np.isnan(ppitch) & ~np.isnan(gpitch)
+    pdist[on] = _chroma_dist(gpitch[on], ppitch[on])
+    pred_pitched = ~np.isnan(ppitch)
 
     return {
         # informational only: in full mode a shift can come from UltraSinger itself
@@ -89,6 +97,7 @@ def frame_metrics(gt: Song, pred: Song) -> dict:
         # same, but only where something was predicted: isolates pitch from voicing errors
         "chroma_acc_cond": _safe((have & (dist == 0)).sum(), have.sum()),
         "usdx_medium": _safe(usdx_hits.sum(), usdx_total.sum()),
+        "usdx_medium_precision": _safe((pred_pitched & (pdist <= 1)).sum(), pred_pitched.sum()),
         # continuous: mean octave-folded distance in semitones (0..6) where both have a note
         "pitch_mae": float(dist[have].mean()) if have.any() else float("nan"),
         # USDX hard: exact pitch class required
@@ -164,6 +173,32 @@ def note_metrics(gt: Song, pred: Song) -> dict:
     return out
 
 
+def boundary_score(gt_times: np.ndarray, pred_times: np.ndarray, tau: float = BOUNDARY_TAU) -> float:
+    """1 - mean loss over events. Chart and output times (starts, or ends) are paired one-to-one to
+    minimise the total loss: a pair costs (error / tau)^2, capped at 1; an unpaired time (missed or
+    extra) costs 1. Events = pairs + unpaired. 1 = perfect, 0 = nothing within tau."""
+    from scipy.optimize import linear_sum_assignment
+    n, m = len(gt_times), len(pred_times)
+    if n == 0 and m == 0:
+        return float("nan")
+    if n == 0 or m == 0:
+        return 0.0
+    cost = np.minimum(((gt_times[:, None] - pred_times[None, :]) / tau) ** 2, 1.0)
+    # pairing i-j instead of leaving both unpaired saves 2 - cost; only pairs with cost < 1 are worth it
+    rows, cols = linear_sum_assignment(np.where(cost < 1.0, cost - 2.0, 0.0))
+    keep = cost[rows, cols] < 1.0
+    pairs = int(keep.sum())
+    loss = float(cost[rows[keep], cols[keep]].sum()) + (n - pairs) + (m - pairs)
+    return 1.0 - loss / (pairs + (n - pairs) + (m - pairs))
+
+
+def timing_metrics(gt: Song, pred: Song) -> dict:
+    """Starts against starts and ends against ends, each paired on its own (boundary_score)."""
+    g, p = gt.notes, pred.notes
+    return {"start_score": boundary_score(np.array([x.start for x in g]), np.array([x.start for x in p])),
+            "end_score": boundary_score(np.array([x.end for x in g]), np.array([x.end for x in p]))}
+
+
 def line_metrics(gt: Song, pred: Song, tol: float = 0.5) -> dict:
     """Line breaks: start times of lines (first note after a '-'), matched within tol seconds."""
     import mir_eval
@@ -213,6 +248,7 @@ def evaluate(gt: Song, pred: Song) -> dict:
     res.update(frame_metrics(gt, pred))
     res["best_offset_ms"] = best_offset(gt, pred) * 1000
     res.update(note_metrics(gt, pred))
+    res.update(timing_metrics(gt, pred))
     res.update(line_metrics(gt, pred))
     res.update(lyric_metrics(gt, pred))
     return res

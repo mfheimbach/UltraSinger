@@ -17,12 +17,13 @@ import tune  # noqa: E402
 from run_eval import discover  # noqa: E402
 
 SWEEPS = {
-    "notes.calibrate.end_extension": [0.0, 0.06, 0.1, 0.2, 0.3, 0.5],
+    "notes.calibrate.end_extension": [-0.1, -0.05, 0.0, 0.03, 0.06, 0.1, 0.2, 0.3],
     "notes.from_pitch.key_min_offset": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
-    "notes.snap_edges.conf": [0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2],
+    "notes.snap_edges.conf": [0.0, 0.03, 0.05, 0.1, 0.2, 0.4],
+    "notes.calibrate.offset": [-0.15, -0.1, -0.07, -0.04, 0.0],
 }
-SHOW = ["usdx_medium", "usdx_hard", "voicing_recall", "voicing_precision", "voicing_f1", "chroma_acc_cond",
-        "onset_f1_100ms", "line_f1", "wer"]
+SHOW = ["usdx_medium", "usdx_medium_precision", "usdx_hard", "voicing_recall", "voicing_precision", "voicing_f1",
+        "start_score", "end_score", "line_f1"]
 
 
 def main():
@@ -30,6 +31,7 @@ def main():
     ap.add_argument("spec")
     ap.add_argument("--start", required=True)
     ap.add_argument("--work", default="eval_work_ng")
+    ap.add_argument("--only", nargs="*", help="sweep only these keys")
     args = ap.parse_args()
     spec = yaml.safe_load(open(args.spec))
     songs = discover(spec["data"]["train"], None)
@@ -39,6 +41,8 @@ def main():
     names = [n for n, _ in songs]
     print("start:", ev.base_overrides)
     for key, values in SWEEPS.items():
+        if args.only and key not in args.only:
+            continue
         dims = tune.parse_search({key: values})
         exp, cheap, tail = tune.split_dims(ev.pipeline([], names[0]), dims, 3.0, 1.0)
         print(f"\n## {key}\n")

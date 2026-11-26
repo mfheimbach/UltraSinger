@@ -163,3 +163,18 @@ def test_untimed_words_stay_none_until_the_fallback_step_places_them(caplog):
     assert words[0].start is None                           # input untouched
     quiet = step.run(Context(cache_dir=tempfile.gettempdir(), output_dir=tempfile.gettempdir()), out)["words"]
     assert [(w.start, w.end) for w in quiet] == [(w.start, w.end) for w in out]
+
+
+# ----------------------------------------------------------------------------- eval metrics
+
+def test_boundary_score_quadratic_and_one_to_one():
+    import sys
+    import numpy as np
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "eval"))
+    from metrics import boundary_score
+    g = np.array([1.0, 2.0, 3.0])
+    assert boundary_score(g, g) == 1.0
+    assert boundary_score(g, g + 0.05, tau=0.1) == pytest.approx(0.75)          # (0.5)^2 per pair
+    assert boundary_score(g, g + 0.2, tau=0.1) == 0.0                           # beyond tau: unpaired
+    assert boundary_score(g, np.array([1.0, 2.0]), tau=0.1) == pytest.approx(2 / 3)   # one missed
+    assert boundary_score(g, np.array([1.0, 1.01, 2.0, 3.0]), tau=0.1) == pytest.approx(3 / 4)  # one extra
