@@ -1,3 +1,4 @@
 mir_eval>=0.8
 jiwer>=4.0
 optuna>=4
+onnx>=1.16          # GAME segmenter edits the ONNX graph on load
