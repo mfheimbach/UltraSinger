@@ -5,8 +5,9 @@
 spec=${1:?usage: eval/run_tuning.sh SPEC [extra tune.py args, e.g. --train-songs 80]}
 shift
 cd "$(dirname "$0")/.."
+py=python; [ -x .venv/bin/python ] && py=.venv/bin/python   # works without an activated venv
 for attempt in 0 1 2 3 4 5; do
   [ "$attempt" -gt 0 ] && { echo "=== restart $attempt after a crash ($(date))"; sleep 60; }
-  python eval/tune.py "$spec" --resume "$@" && exit 0
+  "$py" eval/tune.py "$spec" --resume "$@" && exit 0
 done
 echo "=== gave up after 5 restarts: see the traceback above"; exit 1
