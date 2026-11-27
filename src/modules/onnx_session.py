@@ -16,6 +16,7 @@ def session(model, device: str, options=None):
     """model: path or serialized bytes."""
     global _PRELOADED
     import onnxruntime as ort
+    ort.set_default_logger_severity(3)   # onnxruntime's own C++ warnings (Memcpy nodes): errors only
     providers = ["CPUExecutionProvider"]
     if device == "cuda":
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
