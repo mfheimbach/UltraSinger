@@ -19,7 +19,10 @@ def session(model, device: str, options=None):
     ort.set_default_logger_severity(3)   # onnxruntime's own C++ warnings (Memcpy nodes): errors only
     providers = ["CPUExecutionProvider"]
     if device == "cuda":
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        # grow the GPU arena only by what is requested (default doubles it); with Whisper resident
+        # on an 8 GB card the doubling ran GAME out of memory
+        providers = [("CUDAExecutionProvider", {"arena_extend_strategy": "kSameAsRequested"}),
+                     "CPUExecutionProvider"]
         if not _PRELOADED and hasattr(ort, "preload_dlls"):
             try:
                 ort.preload_dlls()

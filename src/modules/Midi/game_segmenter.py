@@ -92,6 +92,10 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
                             seed: int, radius: int, presence_threshold: float):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
     log.info(f"Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
+    # a fresh model per song on purpose: onnxruntime's seeded Random ops keep their state inside a
+    # session, so a reused session would make a song's notes depend on the songs scored before it
+    from modules import gpu_memory
+    gpu_memory.free_torch_cache()
     model = GameModel(model_dir, device, seed)
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr
@@ -129,7 +133,18 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
             # GAME's CUDA kernels reject; split it in two (a known boundary mid-syllable)
             log.warning("FALLBACK: GAME chunk with a single known region split in two")
             regions = [regions[0] / 2, regions[0] / 2]
-        durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps, presence_threshold)
+        try:
+            durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps,
+                                               presence_threshold)
+        except Exception as e:  # noqa: BLE001  (onnxruntime raises a generic RuntimeException)
+            if "Failed to allocate memory" not in str(e):
+                raise
+            log.warning("FALLBACK: GAME ran out of GPU memory; releasing cached models and retrying")
+            gpu_memory.release_all()
+            del model
+            model = GameModel(model_dir, device, seed)
+            durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps,
+                                               presence_threshold)
         t = c0
         notes = []
         for d, p, sc in zip(durs, presence, scores):

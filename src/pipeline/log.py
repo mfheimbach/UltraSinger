@@ -89,7 +89,7 @@ class _ConsoleFilter(logging.Filter):
         if _state["debug"]:
             return True
         if _ours(record):
-            if record.levelno == logging.WARNING and (getattr(record, "event", None) == "contract"
+            if record.levelno == logging.WARNING and (getattr(record, "event", None) in ("contract", "stale_code")
                                                       or record.getMessage().startswith("FALLBACK")):
                 key = _kind(record)
                 if key in self.seen:

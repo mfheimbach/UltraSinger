@@ -96,6 +96,10 @@ def free_models() -> None:
     torch.cuda.empty_cache()
 
 
+from modules import gpu_memory  # noqa: E402
+gpu_memory.register(free_models)
+
+
 def transcribe_with_whisper(
     audio_path: str,
     model: WhisperModel,
