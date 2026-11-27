@@ -270,3 +270,17 @@ def test_group_noise_scales_with_song_count():
     import pytest
     with pytest.raises(ValueError):
         tune.group_noise(pipe, dims, {key: {"sd": 0.01}}, None, 25)
+
+
+def test_gpu_model_steps_never_cheap(monkeypatch):
+    from types import SimpleNamespace as S
+    import tune
+    stages = [S(id="syllables.hyphenate", name="syllables.hyphenate", gpu_model=False),
+              S(id="segment.game", name="segment.game", gpu_model=True),
+              S(id="notes.merge", name="notes.merge", gpu_model=False),
+              S(id="write.ultrastar", name="write.ultrastar", gpu_model=False)]
+    monkeypatch.setattr(tune, "step_cost", lambda name: 0.01)       # everything looks cheap
+    dims = tune.parse_search({"syllables.hyphenate.enabled": [True, False], "notes.merge.gap": [1, 2]})
+    exp, cheap, tail = tune.split_dims(S(stages=stages), dims, 3.0, 1.0)
+    assert [d.key for d in exp] == ["syllables.hyphenate.enabled"]
+    assert [d.key for d in cheap] == ["notes.merge.gap"] and tail == 2

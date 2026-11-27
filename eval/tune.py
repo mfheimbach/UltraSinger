@@ -267,6 +267,12 @@ _W = None
 
 def _worker_init(spec, work, songs):
     global _W, DEVICE
+    try:   # Linux: get SIGTERM when the main process dies (otherwise killed runs leave workers behind)
+        import ctypes
+        import signal
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
     DEVICE = "cpu"
     plog.setup(verbose=False)
     _W = Evaluator(spec, work, songs)
@@ -348,6 +354,7 @@ def split_dims(base_pipeline: Pipeline, dims: list[Dim], cheap_seconds: float,
     a cheap dim can touch, never after the first writer (charts are written per trial)."""
     ids = [st.id for st in base_pipeline.stages]
     names = [st.name for st in base_pipeline.stages]
+    gpu = [bool(getattr(st, "gpu_model", False)) for st in base_pipeline.stages]
     cost = [step_cost(n) for n in names]
     cost = [unknown_seconds if c is None else c for c in cost]
 
@@ -366,7 +373,7 @@ def split_dims(base_pipeline: Pipeline, dims: list[Dim], cheap_seconds: float,
         if d.attr in ("after", "before"):
             i = min([i] + [ids.index(c) + (1 if d.attr == "after" else 0) for c in d.choices if c in ids])
         c = max(tail_cost(i, alt) for alt in d.choices) if d.attr == "use" else tail_cost(i)
-        if c <= cheap_seconds:
+        if c <= cheap_seconds and not any(gpu[i:]):   # GPU model steps never go to the CPU workers
             cheap.append((d, i))
         else:
             if d.kind != "choice":

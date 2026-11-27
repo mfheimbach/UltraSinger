@@ -15,7 +15,7 @@ import logging
 import os
 from dataclasses import dataclass
 
-from pipeline.core import Stage, stage
+from pipeline.core import REGISTRY, Stage, stage
 from pipeline.log import get
 
 log = get("stages")
@@ -767,3 +767,10 @@ class WriteConventions(Stage):
                  "far_offset_beats": p.break_far_offset_beats}
         apply_conventions(txt, p.touching_notes, p.line_breaks, p.apostrophes, p.capitalise, rules)
         return {"txt": txt}
+
+
+# Stages running a heavy model on ctx.device. Set here, not in the class bodies: a stage's source is
+# part of its cache key, and this flag changes no output.
+for _name in ("separate", "transcribe.whisper", "words.align_text", "transcribe.qwen3", "pitch.rmvpe",
+              "segment.game"):
+    REGISTRY[_name].gpu_model = True

@@ -178,6 +178,9 @@ class Stage:
 
     name: str = ""
     version: str = "1"
+    # runs a heavy model on ctx.device (GPU): the tuner never puts such a step into the cheap tail,
+    # which runs in CPU worker processes (CPU and GPU results differ; CPU copies need lots of RAM)
+    gpu_model: bool = False
     inputs: dict[str, str] = {}
     outputs: dict[str, str] = {}
     optional_inputs: tuple[str, ...] = ()
