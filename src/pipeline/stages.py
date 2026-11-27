@@ -433,7 +433,7 @@ class PitchSwiftF0(Stage):
 class SegmentGAME(Stage):
     """syllables -> syllables split at GAME note boundaries (+ GAME's note pitches in aux.game)."""
     name = "segment.game"
-    version = "5"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (overlaps: syllables.trim_overlaps); 4: CUDA really used (was silently CPU); 5: device per chunk fixed by length
+    version = "6"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (overlaps: syllables.trim_overlaps); 4: CUDA really used (was silently CPU); 5: device per chunk fixed by length; 6: drop GAME results the CPU workers cached
     inputs = {"syllables": "syllables|words", "audio": "audio.vocals", "language": "language"}
     outputs = {"syllables": "@syllables", "game": "aux.game"}
 
