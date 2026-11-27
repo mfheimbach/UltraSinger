@@ -124,6 +124,11 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
             regions.append(c1 - cursor)
         if not edges:
             continue
+        if len(regions) == 1:
+            # one region (a syllable filling the whole chunk) gives zero known boundaries, which
+            # GAME's CUDA kernels reject; split it in two (a known boundary mid-syllable)
+            log.warning("FALLBACK: GAME chunk with a single known region split in two")
+            regions = [regions[0] / 2, regions[0] / 2]
         durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps, presence_threshold)
         t = c0
         notes = []

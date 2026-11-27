@@ -57,7 +57,9 @@ def probe_game(a):
             t = time.time()
             for i in range(0, len(y), chunk):
                 w = y[i:i + chunk]
-                m.run(w, [len(w) / m.sr], 0, p["boundary_threshold"], p["radius"], steps, p["presence_threshold"])
+                d = len(w) / m.sr          # realistic known regions: ~1 s pieces (syllables and gaps)
+                regions = [1.0] * int(d) + ([d - int(d)] if d - int(d) > 1e-3 else [])
+                m.run(w, regions, 0, p["boundary_threshold"], p["radius"], steps, p["presence_threshold"])
             print(f"  inference {len(y) / m.sr:.0f} s audio, steps {steps:<2d} (det={deterministic})"
                   f"{'':6s} {time.time() - t:7.2f} s", flush=True)
 
