@@ -52,13 +52,25 @@ def main():
         ok = torch.cuda.is_available()
         check("CUDA", ok, torch.cuda.get_device_name(0) + f", {torch.cuda.get_device_properties(0).total_memory / 1e9:.0f} GB"
               if ok else "torch sees no GPU")
-        try:
+        try:   # a real session: "available" providers say nothing about the CUDA libraries loading
+            import onnx
             import onnxruntime as ort
-            check("onnxruntime CUDA provider", "CUDAExecutionProvider" in ort.get_available_providers() or None,
-                  "missing: GAME/RMVPE run on CPU (works, slower; pip install onnxruntime-gpu)"
-                  if "CUDAExecutionProvider" not in ort.get_available_providers() else "")
-        except Exception:  # noqa: BLE001
-            pass
+            from onnx import TensorProto, helper
+            sys.path.insert(0, os.path.join(ROOT, "src"))
+            from modules.onnx_session import session
+            g = helper.make_graph([helper.make_node("Identity", ["x"], ["y"])], "probe",
+                                  [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+                                  [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])])
+            m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 13)])
+            m.ir_version = 8
+            active = session(m.SerializeToString(), "cuda").get_providers()
+            check("onnxruntime runs on CUDA (GAME, RMVPE)", "CUDAExecutionProvider" in active,
+                  f"onnxruntime {ort.__version__} active: {active}" if "CUDAExecutionProvider" in active else
+                  f"onnxruntime {ort.__version__} fell back to CPU (GAME ~5x slower). onnxruntime-gpu <= 1.26 "
+                  "matches PyTorch's CUDA 12: uv pip uninstall onnxruntime onnxruntime-gpu && "
+                  "uv pip install 'onnxruntime-gpu==1.26.*'")
+        except Exception as e:  # noqa: BLE001
+            check("onnxruntime runs on CUDA (GAME, RMVPE)", False, f"{type(e).__name__}: {e}")
     else:
         check("device", None, "cpu (a full staged run takes ~8-9 h on a laptop CPU)")
 

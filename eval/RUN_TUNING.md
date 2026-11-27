@@ -10,7 +10,8 @@ git fetch && git checkout pipeline-refactor && git pull
 curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env   # uv, if missing
 uv sync
 uv pip install -r eval/requirements.txt   # mir_eval, jiwer, optuna
-# GPU: GAME and RMVPE use onnxruntime; for CUDA there:  uv pip install onnxruntime-gpu
+# GPU: GAME and RMVPE use onnxruntime. onnxruntime-gpu <= 1.26 is built for CUDA 12 (PyTorch cu12x), >= 1.27 for CUDA 13:
+#   uv pip uninstall onnxruntime onnxruntime-gpu && uv pip install 'onnxruntime-gpu==1.26.*'   (preflight checks a real CUDA session)
 ```
 
 - **GAME model** (the zip holds the folder `GAME-1.0.3-small-onnx/`):

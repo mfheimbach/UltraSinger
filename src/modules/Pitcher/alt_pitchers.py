@@ -61,13 +61,12 @@ def _rmvpe_decode(hidden: np.ndarray, threshold: float) -> tuple[np.ndarray, np.
 def get_pitch_with_rmvpe(audio_path: str, device: str, threshold: float) -> PitchedData:
     """RMVPE pitch (10 ms frames). Pitch-shifted extra passes with median voting were tested and
     rejected (worse in the pipeline), so there is one pass."""
-    import onnxruntime as ort
     from huggingface_hub import hf_hub_download
+    from modules.onnx_session import session as onnx_session
 
     log.info(f"Pitching with {blue_highlighted('RMVPE')}")
     model_path = hf_hub_download(RMVPE_REPO, RMVPE_FILE)
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
-    session = ort.InferenceSession(model_path, providers=providers)
+    session = onnx_session(model_path, device)
 
     y, _ = librosa.load(audio_path, sr=SR, mono=True)
     f0, conf = _rmvpe_pass(session, y, threshold)

@@ -25,9 +25,9 @@ log = logging.getLogger("ultrasinger.game_segmenter")
 class GameModel:
     def __init__(self, model_dir: str, device: str, seed: int):
         import onnxruntime as ort
+        from modules.onnx_session import session
         with open(os.path.join(model_dir, "config.json"), encoding="utf-8") as f:
             self.config = json.load(f)
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
         opts = ort.SessionOptions()
         opts.use_deterministic_compute = True
 
@@ -40,7 +40,7 @@ class GameModel:
             for node in model.graph.node:
                 if node.op_type.startswith("Random"):
                     node.attribute.append(onnx.helper.make_attribute("seed", float(seed + 1)))
-            return ort.InferenceSession(model.SerializeToString(), opts, providers=providers)
+            return session(model.SerializeToString(), device, opts)
         self.encoder, self.dur2bd, self.segmenter = load("encoder"), load("dur2bd"), load("segmenter")
         self.bd2dur, self.estimator = load("bd2dur"), load("estimator")
         self.sr = self.config["samplerate"]
