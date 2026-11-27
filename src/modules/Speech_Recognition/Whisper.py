@@ -72,6 +72,30 @@ def number_to_words(line,language='en'):
     return ''.join(out_tokens) 
 
 
+_MODELS: dict = {}   # kind -> (key, model): one loaded model per kind, kept across songs
+
+
+def _cached(kind: str, key: tuple, load):
+    hit = _MODELS.get(kind)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    _MODELS.pop(kind, None)          # a different model of this kind: release the old one first
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    model = load()
+    _MODELS[kind] = (key, model)
+    return model
+
+
+def free_models() -> None:
+    """Release the cached Whisper and alignment models (and their GPU memory)."""
+    _MODELS.clear()
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def transcribe_with_whisper(
     audio_path: str,
     model: WhisperModel,
@@ -95,9 +119,9 @@ def transcribe_with_whisper(
 
     try:
         torch.cuda.empty_cache()
-        loaded_whisper_model = whisperx.load_model(
-            model.value, language=language, device=device, compute_type=compute_type
-        )
+        loaded_whisper_model = _cached("asr", (model.value, language, device, compute_type),
+                                       lambda: whisperx.load_model(model.value, language=language, device=device,
+                                                                   compute_type=compute_type))
 
         audio = whisperx.load_audio(audio_path)
 
@@ -113,9 +137,9 @@ def transcribe_with_whisper(
 
         # load alignment model and metadata
         try:
-            model_a, metadata = whisperx.load_align_model(
-                language_code=language, device=device, model_name=alignment_model
-            )
+            model_a, metadata = _cached("align", (language, device, alignment_model),
+                                        lambda: whisperx.load_align_model(language_code=language, device=device,
+                                                                          model_name=alignment_model))
         except ValueError as ve:
             log.error(f"{ve}: unknown language for alignment; set transcribe.whisper.align_model "
                       "to a wav2vec2 model from huggingface")
@@ -138,11 +162,9 @@ def transcribe_with_whisper(
 
         transcribed_data = convert_to_transcribed_data(result_aligned)
 
-        # free the models before later stages (e.g. Qwen3 re-alignment) load theirs
+        # models stay loaded (one ASR model + one aligner, ~2 GB VRAM on CUDA); a run over many songs
+        # skips ~6 s of loading per song. free_models() releases them (out of memory below).
         del loaded_whisper_model, model_a
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
 
         return TranscriptionResult(transcribed_data, detected_language)
     except ValueError as value_error:
@@ -162,6 +184,7 @@ def transcribe_with_whisper(
         # Restore original torch.load in case of error
         torch.load = _original_torch_load
 
+        free_models()
         log.error(str(oom_exception))
         log.error(MEMORY_ERROR_MESSAGE)
         raise oom_exception

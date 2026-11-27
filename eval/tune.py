@@ -85,6 +85,13 @@ def print(*args, **kwargs):  # noqa: A001  (every tuner line gets a timestamp, l
 
 BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
 PROGRESS_MIN_SECONDS = 5.0   # a song scored slower than this was computed (not cached): progress line
+GROUP_LABEL = ""             # "group i/n name", shown on progress lines
+
+
+def bar(i: int, n: int, width: int = 20) -> str:
+    """Text progress bar for log lines (a log file has no terminal to redraw)."""
+    k = round(width * i / max(n, 1))
+    return f"[{'#' * k}{'-' * (width - k)}] {i}/{n}"
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
 REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective.sum",
@@ -460,7 +467,8 @@ class Evaluator:
             out.append(self.score(n, exp_ov, cheap_ov, tail_start))
             if time.time() - t > PROGRESS_MIN_SECONDS:   # computed, not a cache hit
                 left = (time.time() - t0) / i * (len(names) - i)
-                print(f"    [{i}/{len(names)}] {n[:50]}  {time.time() - t:.0f}s  (group step ~{left / 60:.0f} min left)")
+                print(f"    {bar(i, len(names))} songs  ~{left / 60:.0f} min left  {GROUP_LABEL}  "
+                      f"{n[:40]} {time.time() - t:.0f}s", flush=True)
         return out
 
     def report_floored(self, names: list[str], tail_start_of) -> list[str]:
@@ -582,8 +590,8 @@ def tune(ev: Evaluator, songs: list[str], expensive: list[Dim], cheap: list[Dim]
     if not done and not use_grid and {d.key for d in active(dims, base)} <= set(base):
         study.enqueue_trial({k: v for k, v in base.items() if k in {d.key for d in active(dims, base)}})
     t0 = time.time()
-    callbacks = [lambda s, t: log(f"  trial {t.number:3d}  {t.value:.4f}  best {s.best_value:.4f}"
-                                  f"  ({time.time() - t0:.0f}s)") if t.number % 10 == 0 else None]
+    callbacks = [lambda s, t: log(f"  {bar(t.number + 1, trials)} trials  {t.value:.4f}  best {s.best_value:.4f}"
+                                  f"  ({time.time() - t0:.0f}s)  {GROUP_LABEL}")]
     if stop:
         hist = []
         best = -np.inf
@@ -1020,6 +1028,9 @@ def main():
         if gi + 1 < args.from_group:
             continue
         trials = args.trials or group.get("trials") or spec["trials"]
+        global GROUP_LABEL
+        GROUP_LABEL = f"| group {gi + 1}/{len(groups)} {group['name']}"
+        print(f"\n{bar(gi, len(groups))} groups done; starting {gi + 1}. {group['name']}", flush=True)
         res = run_group(ev, names, group["search"], trials, folds, args.seed + 100 * gi, report,
                         f"{gi + 1}. {group['name']}", group.get("sampler", spec["sampler"]),
                         group.get("stop", spec["stop"]), spec)
