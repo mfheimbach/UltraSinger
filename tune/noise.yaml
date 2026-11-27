@@ -1,12 +1,14 @@
 # Noise levels per engine: SD of the tuning objective (mean over the song set) when the module's
 # chaos is re-rolled (seeds, or tiny placebo changes of its input). Keyed by song set, then by
-# engine (stage name[model]). The tuner uses, for each group, the first chaotic module at or after
+# engine (stage name[model]). `songs`: the song count the SD (of the mean) is for; the tuner
+# scales it to the songs a group runs on (sqrt). The tuner uses, for each group, the first chaotic module at or after
 # the group's earliest step; another engine or another objective is a logged FALLBACK.
 # Re-measure when an engine or the objective changes. TODO: 10+ seeds/placebos on GPU (n=3 is rough),
 # and per-song replicate metrics so the SD can be recomputed for any objective / subset.
 eval_singstar/bench:
   separate[htdemucs_ft]:
     sd: 0.0208
+    songs: 12
     n: 3
     how: "demucs seeds 0-2 (runs sel_sep0-2, re-scored), preset bench; earlier objectives: 0.0298 (additive), 0.0515 (unfloored lyrics factor)"
     date: 2026-11-26
@@ -19,6 +21,7 @@ eval_singstar/bench:
   # chaotic module (GAME). The earlier 0.0139 "placebo" (silence muting -50/-60 dB) was a real effect.
   segment.game[GAME-1.0.3-small-onnx]:
     sd: 0.0048
+    songs: 12
     n: 3
     how: "GAME seeds 0-2 (runs sel_sep0, selg_game1-2, re-scored); earlier objectives: 0.0044, 0.0038"
     date: 2026-11-26
@@ -28,12 +31,14 @@ eval_singstar/tune_train:
   # ESTIMATES until measured (GPU noise run): bench values x sqrt(12 / 150) for ~150 windows
   separate[htdemucs_ft]:
     sd: 0.0059
+    songs: 150
     n: 3
     how: "ESTIMATE: bench demucs-seed SD 0.0208 x sqrt(12/150); measure it"
     date: 2026-11-26
     objective: *obj
   segment.game[GAME-1.0.3-small-onnx]:
     sd: 0.0014
+    songs: 150
     n: 3
     how: "ESTIMATE: bench GAME-seed SD 0.0048 x sqrt(12/150); measure it"
     date: 2026-11-26

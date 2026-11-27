@@ -13,6 +13,8 @@ data:
   holdout: eval_singstar/tune_holdout   # the other ~25%, artist-disjoint; scored once at the end
   folds: 3
   gt_language: true
+train_songs: 50     # fixed random subset of the train songs from group 2 on (~20 h budget); "all" = every song
+train_songs_seed: 0
 objective:          # per song: weighted sum x (floor + (1 - floor) x factor), mean over songs
   sum: {usdx_medium_f1: 1.0, usdx_hard: 0.5, start_score: 0.5, end_score: 0.25, line_f1: 0.25}
   multiply: {lyrics_acc: 0.5}   # wrong words halve a chart's value; failed transcriptions still count (logged)
@@ -37,28 +39,13 @@ stages:
     search:
       prepare.denoise: [true, false]
       prepare.mute_silence: [true, false]
-  - name: denoise strength          # dropped by the effect probe if denoise was switched off
-    search:
-      prepare.denoise_reduction_db: [40, 70, 97]
-      prepare.denoise_floor_db: [-80, -60]
+  # cut 2026-11-27 to fit ~20 h on the RTX 2070 (full songs, ~2.5 min each): left out for now
+  # (values stay in best.yaml): denoise strength (placebo showed no transcript change), whisper
+  # precision / batch size / numbers (speed knobs, rare), untimed words (fallback), silence split,
+  # GAME decoding (radius, steps, chunk). Expensive groups test single moves away from the base.
   - name: silence muting level
     search:
       prepare.silence_threshold_db: [-60, -50, -40]
-      prepare.min_silence_ms: [25, 50, 100]
-  # --- words (one Whisper pass per value: sequential groups instead of one grid)
-  - name: whisper precision
-    search:
-      transcribe.whisper.compute_type: [int8, float32]
-  - name: whisper batch size
-    search:
-      transcribe.whisper.batch_size: [4, 16]
-  - name: numbers as words
-    search:
-      transcribe.whisper.keep_numbers: [false, true]
-  - name: untimed words (fallback)
-    search:
-      words.place_untimed.gap: [0.05, 0.1, 0.2]
-      words.place_untimed.length: [0.05, 0.1, 0.2]
   # --- syllables
   - name: hyphenation
     search:
@@ -66,30 +53,19 @@ stages:
         true:
           syllables.hyphenate.backend: [pyhyphen, pyphen]
         false: {}
-  - name: silence split
-    search:
-      syllables.silence_split.silence_threshold_db: [-60, -50, -40]
-      syllables.silence_split.min_silence_ms: [25, 50, 100]
-      syllables.silence_split.min_piece: [0.05, 0.1, 0.2]
   # --- pitch and segmentation
   - name: pitch track
     search:
-      pitch.rmvpe.decode_threshold: [0.01, 0.03, 0.06, 0.1]
+      pitch.rmvpe.decode_threshold: [0.01, 0.03, 0.1]
   - name: segmentation module
     search:
       segment.game.use:
         segment.game: {}
         segment.contour:
           notes.game_pitch.enabled: [false]   # contour has no GAME pitches
-  - name: GAME thresholds
+  - name: GAME boundary threshold
     search:
-      segment.game.boundary_threshold: [0.1, 0.15, 0.2, 0.3]
-      segment.game.presence_threshold: [0.1, 0.2, 0.3]
-  - name: GAME decoding
-    search:
-      segment.game.radius: [1, 2, 3]
-      segment.game.steps: [4, 8, 16]
-      segment.game.chunk_seconds: [15.0, 30.0]
+      segment.game.boundary_threshold: [0.1, 0.2, 0.3]
   # --- notes (cheap: joint search)
   - name: key analysis
     search:

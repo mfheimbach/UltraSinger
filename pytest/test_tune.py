@@ -254,3 +254,19 @@ def test_search_resumes_after_a_crash(tmp_path, monkeypatch):
     _, _, rows3 = tune.tune(ev2, ["a"], [], dims, 0, 12, 0, log=lambda *_: None, sampler_name="tpe", stop={},
                             study_key="g-all")
     assert len(ev2.calls) == 12 - done_before          # finished study: nothing reruns
+
+
+def test_group_noise_scales_with_song_count():
+    from types import SimpleNamespace
+    import tune
+    st = SimpleNamespace(id="separate", name="separate", params=SimpleNamespace(model="m"))
+    pipe = SimpleNamespace(stages=[st])
+    key = tune.engine_key(st)
+    table = {key: {"sd": 0.01, "songs": 100}}
+    dims = tune.parse_search({"separate.model": ["m", "n"]})
+    assert tune.group_noise(pipe, dims, table, None)[0] == 0.01
+    sd, src = tune.group_noise(pipe, dims, table, None, 25)
+    assert abs(sd - 0.02) < 1e-12 and "scaled" in src
+    import pytest
+    with pytest.raises(ValueError):
+        tune.group_noise(pipe, dims, {key: {"sd": 0.01}}, None, 25)

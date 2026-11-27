@@ -84,6 +84,7 @@ def print(*args, **kwargs):  # noqa: A001  (every tuner line gets a timestamp, l
 
 
 BOOT_SAMPLES = 2000    # bootstrap resamples for CIs
+PROGRESS_MIN_SECONDS = 5.0   # a song scored slower than this was computed (not cached): progress line
 
 # Every tuning setting lives in the spec; a missing one stops the run (no silent defaults).
 REQUIRED = ["name", "base", "data.train", "data.holdout", "data.folds", "data.gt_language", "objective.sum",
@@ -450,7 +451,14 @@ class Evaluator:
             for n, (_, chart) in zip(names, out):
                 self.last_chart[n] = chart
             return [res for res, _ in out]
-        return [self.score(n, exp_ov, cheap_ov, tail_start) for n in names]
+        out, t0 = [], time.time()
+        for i, n in enumerate(names, 1):
+            t = time.time()
+            out.append(self.score(n, exp_ov, cheap_ov, tail_start))
+            if time.time() - t > PROGRESS_MIN_SECONDS:   # computed, not a cache hit
+                left = (time.time() - t0) / i * (len(names) - i)
+                print(f"    [{i}/{len(names)}] {n[:50]}  {time.time() - t:.0f}s  (group step ~{left / 60:.0f} min left)")
+        return out
 
     def report_floored(self, names: list[str], tail_start_of) -> list[str]:
         """Songs whose factor metric is near zero on the base config (they count at floor weight):
@@ -667,11 +675,13 @@ def load_noise(song_set: str) -> dict:
         return (yaml.safe_load(f) or {}).get(song_set) or {}
 
 
-def group_noise(pipeline, dims: list[Dim], table: dict, objective: dict) -> tuple[float, str]:
+def group_noise(pipeline, dims: list[Dim], table: dict, objective: dict,
+                n_songs: int | None = None) -> tuple[float, str]:
     """Noise SD for a group: a change re-rolls the first chaotic module at or after the group's earliest
     step, so use that module's saved noise. Exact engine first; the same module with another engine, or
     a value measured for another objective, is a fallback (logged as one); no chaotic module downstream
-    -> 0. Returns (sd, source)."""
+    -> 0. With n_songs, the SD (of a mean over the entry's `songs`) is scaled to that many songs.
+    Returns (sd, source)."""
     import logging
     warn = logging.getLogger("ultrasinger.tune").warning
     ids = [st.id for st in pipeline.stages]
@@ -689,7 +699,15 @@ def group_noise(pipeline, dims: list[Dim], table: dict, objective: dict) -> tupl
                 warn(f"FALLBACK: noise of {use} was measured for objective {table[use]['objective']}, not "
                      f"{objective} (measure it)")
                 src += ", other objective"
-            return float(table[use]["sd"]), src
+            sd = float(table[use]["sd"])
+            if n_songs is not None:
+                if "songs" not in table[use]:
+                    raise ValueError(f"tune/noise.yaml: {use} has no 'songs' (count the SD is for)")
+                ref = int(table[use]["songs"])
+                if ref != n_songs:
+                    sd *= (ref / n_songs) ** 0.5
+                    src += f", scaled from {ref} to {n_songs} songs"
+            return sd, src
     return 0.0, "deterministic downstream"
 
 
@@ -779,7 +797,7 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
         logging.getLogger("ultrasinger.tune").warning(
             f"FALLBACK: no noise levels for song set {spec['data']['train']!r} in tune/noise.yaml; every group "
             f"uses min_gain only (measure them, or check the path matches the key there)")
-    noise_sd, noise_src = group_noise(base_p, dims, table, spec["objective"])
+    noise_sd, noise_src = group_noise(base_p, dims, table, spec["objective"], len(names))
     threshold = min_gain(spec, noise_sd)
     # search steps may be smaller than the adoption threshold: several sub-noise steps can add up to
     # a gain that then has to clear ~1 SD out of sample
@@ -817,7 +835,8 @@ def run_group(ev: Evaluator, names: list[str], search: dict, trials: int, folds:
             te = [x for x in names if fold_of[g[x]] == k]
             if not te or not tr:
                 continue
-            _, ov, _ = tune(ev, tr, expensive, cheap, tail_start, trials, seed + k, log=lambda *_: None,
+            _, ov, _ = tune(ev, tr, expensive, cheap, tail_start, trials, seed + k,
+                            log=lambda m, k=k: print(f"  fold {k + 1}/{folds}{m}"),
                             sampler_name=sampler, stop=stop, study_key=f"{gkey}-fold{k}")
             # same decision rule inside the fold: leave the base only if the training gain beats the
             # noise (scaled from the song set to this fold's size), else a noise-picked winner is scored
@@ -958,6 +977,13 @@ def main():
         raise SystemExit(f"holdout overlaps train: {sorted(overlap)[:5]}")
     ev = Evaluator(spec, args.work, train + holdout)
     names = [n for n, _ in train]
+    if spec.get("train_songs", "all") != "all":   # a fixed random subset (same for every group: caches reused)
+        k = int(spec["train_songs"])
+        if not 0 < k <= len(names):
+            raise SystemExit(f"train_songs {k}: need 1..{len(names)}")
+        names = sorted(np.random.default_rng(int(spec.get("train_songs_seed", 0))).choice(
+            sorted(names), k, replace=False).tolist())
+        print(f"train_songs: {k} of {len(train)} songs")
     groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
     warm_up(ev, names)
     global POOL
@@ -982,6 +1008,8 @@ def main():
             report += [f"songs counting at floor weight on the base config (factor metric <= 0.1): {floored}", ""]
     # keep a group only if its cross-validated gain is above the smallest gain that counts:
     # max(min_gain, noise_sigma x noise SD of the step), see group_noise / min_gain
+    if len(names) < len(train):
+        report += [f"(groups from here on: fixed random subset of {len(names)} of {len(train)} train songs)", ""]
     for gi, group in enumerate(groups):
         if gi + 1 < args.from_group:
             continue
