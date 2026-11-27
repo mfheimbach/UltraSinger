@@ -433,7 +433,7 @@ class PitchSwiftF0(Stage):
 class SegmentGAME(Stage):
     """syllables -> syllables split at GAME note boundaries (+ GAME's note pitches in aux.game)."""
     name = "segment.game"
-    version = "4"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (overlaps: syllables.trim_overlaps); 4: CUDA really used (was silently CPU)
+    version = "5"  # 2: timings rounded to 1 ms; 3: GAME's internal noise seeded (overlaps: syllables.trim_overlaps); 4: CUDA really used (was silently CPU); 5: device per chunk fixed by length
     inputs = {"syllables": "syllables|words", "audio": "audio.vocals", "language": "language"}
     outputs = {"syllables": "@syllables", "game": "aux.game"}
 
@@ -446,13 +446,15 @@ class SegmentGAME(Stage):
         radius: int                  # boundary decoding radius (frames)
         presence_threshold: float    # note presence probability
         seed: int                    # GAME samples noise; other seeds = alternative candidates
+        gpu_max_chunk_seconds: float  # longer chunks always run on CPU (GPU memory grows with length^2;
+                                      # CPU and GPU give slightly different notes, so the split is fixed)
 
     def run(self, ctx, syllables, audio, language):
         from modules.Midi.game_segmenter import game_notes_per_syllable, split_syllables_by_game
         p = self.params
         notes = game_notes_per_syllable(audio, syllables, language, os.path.expanduser(p.model_dir), ctx.device,
                                         p.boundary_threshold, p.steps, p.chunk_seconds, p.seed, p.radius,
-                                        p.presence_threshold)
+                                        p.presence_threshold, p.gpu_max_chunk_seconds)
         notes_by_id = {id(t): [tuple(n) for n in notes.get(id(t), [])] for t in syllables}
         new_syllables, pitches = split_syllables_by_game(syllables, notes_by_id)
         return {"syllables": new_syllables, "game": pitches}

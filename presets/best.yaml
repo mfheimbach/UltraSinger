@@ -25,7 +25,8 @@ params:
   pitch.rmvpe: {decode_threshold: 0.03}
   pitch.swiftf0: {fmin: 46.875, fmax: 2093.75, confidence_threshold: 0.9}
   segment.game: {model_dir: ~/.cache/game/GAME-1.0.3-small-onnx, boundary_threshold: 0.2, steps: 8,
-                 chunk_seconds: 30.0, radius: 2, presence_threshold: 0.2, seed: 0}
+                 chunk_seconds: 30.0, radius: 2, presence_threshold: 0.2, seed: 0,
+                 gpu_max_chunk_seconds: 45.0}
   segment.contour: {min_duration: 0.08, smooth_frames: 5, conf_threshold: 0.4, tuning_correction: true,
                     tuning_min_frames: 10, min_voiced_frames: 3}
   segment.grid: {}

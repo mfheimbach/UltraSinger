@@ -89,7 +89,7 @@ def _chunks(syllables, total: float, max_seconds: float):
 
 def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, model_dir: str,
                             device: str, boundary_threshold: float, steps: int, chunk_seconds: float,
-                            seed: int, radius: int, presence_threshold: float):
+                            seed: int, radius: int, presence_threshold: float, gpu_max_chunk_seconds: float):
     """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME.
 
     On CUDA, GAME runs in a short-lived subprocess per song: onnxruntime's GPU memory pool only grows
@@ -102,8 +102,12 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
     kept = [s for s in transcribed_data if round(float(s.end), 3) > round(float(s.start), 3)]
     timings = [(round(float(s.start), 3), round(float(s.end), 3)) for s in kept]
     args = (audio_path, timings, language, model_dir, device, boundary_threshold, steps, chunk_seconds,
-            seed, radius, presence_threshold)
+            seed, radius, presence_threshold, gpu_max_chunk_seconds)
     if device == "cuda":
+        # GPU memory for the subprocess: release models other modules keep loaded (Whisper); in a
+        # song's pipeline GAME runs after Whisper anyway, so keeping it loaded would save nothing
+        from modules import gpu_memory
+        gpu_memory.release_all()
         per_syllable, warnings = _in_subprocess(args)
     else:
         per_syllable, warnings = notes_for_timings(*args)
@@ -135,14 +139,15 @@ def _in_subprocess(args):
 
 
 def notes_for_timings(audio_path, timings, language, model_dir, device, boundary_threshold, steps,
-                      chunk_seconds, seed, radius, presence_threshold):
+                      chunk_seconds, seed, radius, presence_threshold, gpu_max_chunk_seconds):
     """GAME over the audio with known syllable timings [(start, end)]. Returns (notes per timing as
-    [(start, end, midi)], warnings)."""
+    [(start, end, midi)], warnings). On CUDA, chunks longer than gpu_max_chunk_seconds run on CPU:
+    decided by length only, so the notes never depend on how much GPU memory happened to be free."""
     from modules import gpu_memory
     gpu_memory.free_torch_cache()
     warnings = []
     model = GameModel(model_dir, device, seed)
-    cpu_model = None
+    cpu_model, long_chunks = None, 0
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr
     lang = model.language_id(language)
@@ -177,17 +182,19 @@ def notes_for_timings(audio_path, timings, language, model_dir, device, boundary
             # GAME's CUDA kernels reject; split it in two (a known boundary mid-syllable)
             warnings.append("FALLBACK: GAME chunk with a single known region split in two")
             regions = [regions[0] / 2, regions[0] / 2]
-        try:
-            durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps,
-                                               presence_threshold)
-        except Exception as e:  # noqa: BLE001  (onnxruntime raises a generic RuntimeException)
-            if device != "cuda" or "Failed to allocate memory" not in str(e):
-                raise
-            warnings.append(f"FALLBACK: GAME chunk of {c1 - c0:.0f} s too large for GPU memory; ran it on CPU")
+        on_cpu = device == "cuda" and c1 - c0 > gpu_max_chunk_seconds
+        if on_cpu:
+            long_chunks += 1
             if cpu_model is None:
                 cpu_model = GameModel(model_dir, "cpu", seed)
-            durs, presence, scores = cpu_model.run(wave, regions, lang, boundary_threshold, radius, steps,
-                                                   presence_threshold)
+        try:
+            durs, presence, scores = (cpu_model if on_cpu else model).run(
+                wave, regions, lang, boundary_threshold, radius, steps, presence_threshold)
+        except Exception as e:  # noqa: BLE001  (onnxruntime raises a generic RuntimeException)
+            if "Failed to allocate memory" in str(e):
+                raise RuntimeError(f"GAME: a {c1 - c0:.0f} s chunk does not fit in GPU memory; lower "
+                                   f"segment.game.gpu_max_chunk_seconds ({gpu_max_chunk_seconds:g})") from e
+            raise
         t = c0
         notes = []
         for d, p, sc in zip(durs, presence, scores):
@@ -198,6 +205,8 @@ def notes_for_timings(audio_path, timings, language, model_dir, device, boundary
                 mid = (n0 + n1) / 2
                 if p and a <= mid < b:
                     result[s.i].append((max(n0, a), min(n1, b), sc))
+    if long_chunks:
+        log.info(f"GAME: {long_chunks} chunk(s) longer than {gpu_max_chunk_seconds:g} s ran on CPU")
     return result, warnings
 
 
