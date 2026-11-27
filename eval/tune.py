@@ -300,7 +300,9 @@ def print_eta(ev: "Evaluator", names: list[str], groups: list[dict], spec: dict,
     cost = [step_cost(st.name) or 0.0 for st in p.stages]
     per30 = audio / 30.0
     total = 0.0
+    lines = []
     for g in groups:
+        before = total
         dims = parse_search(g["search"])
         exp, cheap, tail = split_dims(p, dims, float(spec["cost"]["cheap_seconds"]),
                                       float(spec["cost"]["unknown_seconds"]))
@@ -312,8 +314,9 @@ def print_eta(ev: "Evaluator", names: list[str], groups: list[dict], spec: dict,
         if cheap:
             tail_cost = sum(cost[tail:]) + 0.3          # + metrics per 30 s audio (rough)
             total += trials * (folds + 1) * 0.8 * tail_cost * per30 / max(1, workers)
+        lines.append(f"    {(total - before) / 3600:5.1f} h  {g['name']}")
     print(f"ETA (rough, from runtime records): {total / 3600:.1f} h for {len(names)} songs, "
-          f"{audio / 60:.0f} min of audio", flush=True)
+          f"{audio / 60:.0f} min of audio; per group:\n" + "\n".join(lines), flush=True)
 
 
 def warm_up(ev: "Evaluator", names: list[str]) -> None:
@@ -998,6 +1001,9 @@ def main():
     start = list(ev.base_overrides)
     if args.from_group > 1:
         report, all_rows, ev.base_overrides = read_previous(out_dir, groups, args.from_group)
+        # overrides added to the spec since (format-only ones like stems): keep unless already set
+        have = {o.split("=", 1)[0] for o in ev.base_overrides}
+        ev.base_overrides = [o for o in start if o.split("=", 1)[0] not in have] + ev.base_overrides
         report += [f"(resumed at group {args.from_group})", ""]
     else:
         report = [f"# Tuning report: {spec['name']}", "", f"base preset `{spec['base']}` + {ev.base_overrides}, "

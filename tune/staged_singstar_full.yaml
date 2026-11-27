@@ -7,7 +7,7 @@
 # writer) are searched jointly with TPE.
 name: staged_singstar_full
 base: best          # full songs; lyrics lookup is an optional module (off in best)
-overrides: []
+overrides: [write.ultrastar.stems=false]   # tuning reads only the chart: no opus stems (~4 s/song/trial)
 data:
   train: eval_singstar/tune_train       # full songs of ~75% of the train artists (make_tuning_sets.py)
   holdout: eval_singstar/tune_holdout   # the other ~25%, artist-disjoint; scored once at the end
