@@ -90,27 +90,71 @@ def _chunks(syllables, total: float, max_seconds: float):
 def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, model_dir: str,
                             device: str, boundary_threshold: float, steps: int, chunk_seconds: float,
                             seed: int, radius: int, presence_threshold: float):
-    """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME."""
+    """For each syllable: list of (start, end, midi_float) voiced notes predicted by GAME.
+
+    On CUDA, GAME runs in a short-lived subprocess per song: onnxruntime's GPU memory pool only grows
+    and memory of earlier sessions was not fully returned, so a long run ran out of memory; a process
+    that exits frees everything. (A fresh model per song is needed anyway: the seeded Random ops keep
+    their state inside a session, so reusing one would make a song's notes depend on earlier songs.)"""
     log.info(f"Segmenting notes with {blue_highlighted('GAME')} ({os.path.basename(model_dir)})")
-    # a fresh model per song on purpose: onnxruntime's seeded Random ops keep their state inside a
-    # session, so a reused session would make a song's notes depend on the songs scored before it
+    # Work on timings rounded to 1 ms: fresh transcriptions (float32) and cached JSON (float64)
+    # differ by ~1e-7 s, which shifts chunk cuts by a sample and changes GAME's output.
+    kept = [s for s in transcribed_data if round(float(s.end), 3) > round(float(s.start), 3)]
+    timings = [(round(float(s.start), 3), round(float(s.end), 3)) for s in kept]
+    args = (audio_path, timings, language, model_dir, device, boundary_threshold, steps, chunk_seconds,
+            seed, radius, presence_threshold)
+    if device == "cuda":
+        per_syllable, warnings = _in_subprocess(args)
+    else:
+        per_syllable, warnings = notes_for_timings(*args)
+    for w in warnings:
+        log.warning(w)
+    result = {id(s): [] for s in transcribed_data}
+    for s, notes in zip(kept, per_syllable):
+        result[id(s)] = [tuple(n) for n in notes]
+    return result
+
+
+def _in_subprocess(args):
+    import pickle
+    import subprocess
+    import sys
+    import tempfile
+    src = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with tempfile.TemporaryDirectory() as tmp:
+        inp, out = os.path.join(tmp, "in.pkl"), os.path.join(tmp, "out.pkl")
+        with open(inp, "wb") as f:
+            pickle.dump(args, f)
+        env = {**os.environ, "PYTHONPATH": src + os.pathsep + os.environ.get("PYTHONPATH", "")}
+        proc = subprocess.run([sys.executable, "-m", "modules.Midi.game_segmenter", inp, out], env=env,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0 or not os.path.exists(out):
+            raise RuntimeError(f"GAME subprocess failed (exit {proc.returncode}):\n{proc.stderr[-3000:]}")
+        with open(out, "rb") as f:
+            return pickle.load(f)
+
+
+def notes_for_timings(audio_path, timings, language, model_dir, device, boundary_threshold, steps,
+                      chunk_seconds, seed, radius, presence_threshold):
+    """GAME over the audio with known syllable timings [(start, end)]. Returns (notes per timing as
+    [(start, end, midi)], warnings)."""
     from modules import gpu_memory
     gpu_memory.free_torch_cache()
+    warnings = []
     model = GameModel(model_dir, device, seed)
+    cpu_model = None
     y, _ = librosa.load(audio_path, sr=model.sr, mono=True)
     total = len(y) / model.sr
     lang = model.language_id(language)
-    # Work on timings rounded to 1 ms: fresh transcriptions (float32) and cached JSON (float64)
-    # differ by ~1e-7 s, which shifts chunk cuts by a sample and changes GAME's output.
+
     class _Syl:
-        __slots__ = ("orig", "start", "end")
+        __slots__ = ("i", "start", "end")
 
-        def __init__(self, orig):
-            self.orig, self.start, self.end = orig, round(float(orig.start), 3), round(float(orig.end), 3)
+        def __init__(self, i, t):
+            self.i, (self.start, self.end) = i, t
 
-    syllables = [_Syl(s) for s in transcribed_data if round(float(s.end), 3) > round(float(s.start), 3)]
-    result = {id(s.orig): [] for s in syllables}
-
+    syllables = [_Syl(i, t) for i, t in enumerate(timings)]
+    result = [[] for _ in timings]
     for c0, c1, chunk in _chunks(syllables, total, chunk_seconds):
         wave = y[int(c0 * model.sr): int(c1 * model.sr)]
         # known regions: gap, syllable, gap, syllable, ..., gap (relative to chunk start)
@@ -131,20 +175,19 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
         if len(regions) == 1:
             # one region (a syllable filling the whole chunk) gives zero known boundaries, which
             # GAME's CUDA kernels reject; split it in two (a known boundary mid-syllable)
-            log.warning("FALLBACK: GAME chunk with a single known region split in two")
+            warnings.append("FALLBACK: GAME chunk with a single known region split in two")
             regions = [regions[0] / 2, regions[0] / 2]
         try:
             durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps,
                                                presence_threshold)
         except Exception as e:  # noqa: BLE001  (onnxruntime raises a generic RuntimeException)
-            if "Failed to allocate memory" not in str(e):
+            if device != "cuda" or "Failed to allocate memory" not in str(e):
                 raise
-            log.warning("FALLBACK: GAME ran out of GPU memory; releasing cached models and retrying")
-            gpu_memory.release_all()
-            del model
-            model = GameModel(model_dir, device, seed)
-            durs, presence, scores = model.run(wave, regions, lang, boundary_threshold, radius, steps,
-                                               presence_threshold)
+            warnings.append(f"FALLBACK: GAME chunk of {c1 - c0:.0f} s too large for GPU memory; ran it on CPU")
+            if cpu_model is None:
+                cpu_model = GameModel(model_dir, "cpu", seed)
+            durs, presence, scores = cpu_model.run(wave, regions, lang, boundary_threshold, radius, steps,
+                                                   presence_threshold)
         t = c0
         notes = []
         for d, p, sc in zip(durs, presence, scores):
@@ -154,8 +197,8 @@ def game_notes_per_syllable(audio_path: str, transcribed_data, language: str, mo
             for n0, n1, p, sc in notes:
                 mid = (n0 + n1) / 2
                 if p and a <= mid < b:
-                    result[id(s.orig)].append((max(n0, a), min(n1, b), sc))
-    return result
+                    result[s.i].append((max(n0, a), min(n1, b), sc))
+    return result, warnings
 
 
 def split_syllables_by_game(transcribed_data, notes_per_syllable):
@@ -185,3 +228,13 @@ def split_syllables_by_game(transcribed_data, notes_per_syllable):
             new_data[-1].word += " "
             new_data[-1].is_word_end = True
     return new_data, pitches
+
+
+if __name__ == "__main__":   # subprocess entry (see _in_subprocess)
+    import pickle
+    import sys
+    with open(sys.argv[1], "rb") as f:
+        _args = pickle.load(f)
+    _res = notes_for_timings(*_args)
+    with open(sys.argv[2], "wb") as f:
+        pickle.dump(_res, f)
