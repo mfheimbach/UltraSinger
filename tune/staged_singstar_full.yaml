@@ -41,11 +41,14 @@ stages:
       prepare.mute_silence: [true, false]
   # cut 2026-11-27 to fit ~20 h on the RTX 2070 (full songs, ~2.5 min each): left out for now
   # (values stay in best.yaml): denoise strength (placebo showed no transcript change), whisper
-  # precision / batch size / numbers (speed knobs, rare), untimed words (fallback), silence split,
-  # GAME decoding (radius, steps, chunk). Expensive groups test single moves away from the base.
+  # precision / numbers (rare), untimed words (fallback), silence split,
+  # GAME decoding radius / chunk. Expensive groups test single moves away from the base.
   - name: silence muting level
     search:
       prepare.silence_threshold_db: [-60, -50, -40]
+  - name: whisper batch size
+    search:
+      transcribe.whisper.batch_size: [4, 16]
   # --- syllables
   - name: hyphenation
     search:
@@ -66,6 +69,9 @@ stages:
   - name: GAME boundary threshold
     search:
       segment.game.boundary_threshold: [0.1, 0.2, 0.3]
+  - name: GAME decoding steps       # 4 halves GAME's time; kept only if the score holds
+    search:
+      segment.game.steps: [4, 8]
   # --- notes (cheap: joint search)
   - name: key analysis
     search:

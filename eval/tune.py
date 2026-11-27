@@ -942,6 +942,7 @@ def main():
     ap.add_argument("--work", default="eval_work_ng")
     ap.add_argument("--trials", type=int, help="override every group's trial budget (smoke tests)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--train-songs", help="override the spec's train_songs (a number, or all)")
     ap.add_argument("--device", default="auto", help="cpu | cuda | auto (cuda if available)")
     ap.add_argument("--race", help="compare search methods on one group, e.g. tpe,cmaes,random,coordinate")
     ap.add_argument("--group", help="with --race: the group (name from stages) to race on")
@@ -988,12 +989,14 @@ def main():
         raise SystemExit(f"holdout overlaps train: {sorted(overlap)[:5]}")
     ev = Evaluator(spec, args.work, train + holdout)
     names = [n for n, _ in train]
+    if args.train_songs:
+        spec["train_songs"] = args.train_songs
     if spec.get("train_songs", "all") != "all":   # a fixed random subset (same for every group: caches reused)
-        k = int(spec["train_songs"])
+        k = int(spec["train_songs"])   # noqa: the subset is a prefix, so 50 -> 80 keeps the first 50
         if not 0 < k <= len(names):
             raise SystemExit(f"train_songs {k}: need 1..{len(names)}")
-        names = sorted(np.random.default_rng(int(spec.get("train_songs_seed", 0))).choice(
-            sorted(names), k, replace=False).tolist())
+        # prefix of one fixed shuffle: a larger subset contains the smaller one (its caches are reused)
+        names = sorted(np.random.default_rng(int(spec.get("train_songs_seed", 0))).permutation(sorted(names))[:k].tolist())
         print(f"train_songs: {k} of {len(train)} songs")
     groups = spec.get("stages") or [{"name": "all", "search": spec["search"]}]
     warm_up(ev, names)
