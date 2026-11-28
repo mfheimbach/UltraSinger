@@ -6,6 +6,9 @@ spec=${1:?usage: eval/run_tuning.sh SPEC [extra tune.py args, e.g. --train-songs
 shift
 cd "$(dirname "$0")/.."
 py=python; [ -x .venv/bin/python ] && py=.venv/bin/python   # works without an activated venv
+# models are cached locally after the preflight/first run; no Hugging Face calls during tuning
+# (8 workers asking the Hub per trial got the IP rate-limited: HTTP 429)
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 for attempt in 0 1 2 3 4 5; do
   [ "$attempt" -gt 0 ] && { echo "=== restart $attempt after a crash ($(date))"; sleep 60; }
   "$py" eval/tune.py "$spec" --resume "$@" && exit 0

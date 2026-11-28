@@ -76,12 +76,23 @@ def punctuation_probabilities(words: list[str], model_name: str, device: str, ch
     return _PUNCT_MEMO[key].copy()
 
 
+_PUNCT_MODEL: dict = {}   # (model_name, device) -> (tokenizer, model): loaded once per process
+
+
+def _punct_model(model_name: str, device: str):
+    if (model_name, device) not in _PUNCT_MODEL:
+        from transformers import AutoModelForTokenClassification, AutoTokenizer
+        _PUNCT_MODEL.clear()
+        _PUNCT_MODEL[(model_name, device)] = (
+            AutoTokenizer.from_pretrained(model_name),
+            AutoModelForTokenClassification.from_pretrained(model_name).to(device).eval())
+    return _PUNCT_MODEL[(model_name, device)]
+
+
 def _punctuation_probabilities(words, model_name, device, chunk, context) -> np.ndarray:
     import torch
-    from transformers import AutoModelForTokenClassification, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForTokenClassification.from_pretrained(model_name).to(device).eval()
+    tokenizer, model = _punct_model(model_name, device)
     no_punct = [k for k, v in model.config.id2label.items() if v == "0"][0]
     cleaned = [re.sub(r"[^\w']", "", w.lower()) or "x" for w in words]
     out = np.zeros(len(cleaned))
