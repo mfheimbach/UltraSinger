@@ -232,6 +232,16 @@ def test_effect_probe_drops_dimensions_that_change_nothing(monkeypatch):
     assert {"notes.calibrate.end_extension", "notes.merge.slides", "notes.merge.slide_max_semitones"} <= set(dead)
 
 
+def test_effect_probe_keeps_fixed_values_coupled_to_a_parent(monkeypatch):
+    """contour -> notes.game_pitch.enabled: [false] is a forced setting, not a searched one; the probe
+    used to flag it dead (one value = one chart), and the contour config then failed to type-check."""
+    monkeypatch.setattr(tune, "step_cost", lambda name: 0.01)
+    ev = FakeEvaluator(lambda cfg: float(str(cfg.get("notes.merge.slides")).lower() == "true"))   # parent matters
+    dims = tune.parse_search({"notes.merge.slides": {False: {}, True: {"notes.merge.slide_max_semitones": [2]}}})
+    dead = tune.probe_effect(ev, ["a"], dims, [], dims, 0)
+    assert dead == []
+
+
 def test_search_resumes_after_a_crash(tmp_path, monkeypatch):
     """A search killed mid-way continues from its stored trials instead of starting over."""
     monkeypatch.setattr(tune, "STORAGE", "sqlite:///" + str(tmp_path / "studies.db"))

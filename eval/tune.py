@@ -768,6 +768,8 @@ def probe_effect(ev: Evaluator, songs: list[str], dims: list[Dim], expensive: li
     by_key = {d.key: d for d in dims}
     dead = []
     for d in dims:
+        if len(grid[d.key]) < 2:   # a fixed value coupled to a parent choice (e.g. contour -> no GAME
+            continue               # pitches): nothing to vary, and dropping it breaks the parent's config
         need, cur = {}, d
         while cur.parent is not None:          # activate the chain of parents
             need[cur.parent[0]] = cur.parent[1]
@@ -1046,6 +1048,9 @@ def main():
                         group.get("stop", spec["stop"]), spec)
         all_rows += [{"group": group["name"], **r} for r in res["rows"]]
         gain = res["cv_gain"] if res["cv_gain"] is not None else res["tuned"] - res["base"]
+        # before adopting: an adopted `step.enabled=false` removes the step the group's dims refer to
+        exp_g, _, _ = split_dims(ev.pipeline([], names[0]), parse_search(group["search"]),
+                                 float(spec["cost"]["cheap_seconds"]), float(spec["cost"]["unknown_seconds"]))
         if gain > res["min_gain"]:
             changed = [o for o in res["overrides"] if o not in _current_values(ev, names[0])]
             ev.base_overrides += changed
@@ -1053,8 +1058,6 @@ def main():
         else:
             report += [f"-> not adopted (gain {gain:+.4f} <= {res['min_gain']:.4f})", ""]
         print("  " + report[-2])
-        exp_g, _, _ = split_dims(ev.pipeline([], names[0]), parse_search(group["search"]),
-                                 float(spec["cost"]["cheap_seconds"]), float(spec["cost"]["unknown_seconds"]))
         if exp_g:   # full songs: variants of expensive groups would fill the disk
             try:
                 print(f"  pruned {prune_side_files(ev, names):.1f} GB of audio files of configurations not adopted")
